@@ -1,0 +1,11 @@
+flask
+flask-cors
+python-binance
+gunicorn
+gunicorn
+flask
+flask-cors
+python-binance
+python-dotenv
+psycopg2-binary
+psycopg2-binary

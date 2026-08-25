@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Crown Markets - Trade Forex Like a Pro</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: linear-gradient(135deg, #0a1428 0%, #1a2a4a 100%);
+      color: #fff;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .container {
+      display: flex;
+      width: 100%;
+      max-width: 1000px;
+      gap: 40px;
+      align-items: center;
+    }
+    .hero {
+      flex: 1;
+      display: none;
+    }
+    .hero h1 {
+      font-size: 42px;
+      font-weight: 700;
+      margin-bottom: 20px;
+      line-height: 1.2;
+    }
+    .hero h1 span {
+      color: #4a9eff;
+    }
+    .hero p {
+      font-size: 16px;
+      color: #aaa;
+      line-height: 1.6;
+      margin-bottom: 30px;
+    }
+    .features-list {
+      list-style: none;
+      display: none;
+    }
+    .features-list li {
+      font-size: 14px;
+      margin-bottom: 15px;
+      display: flex;
+      gap: 10px;
+      color: #ccc;
+    }
+    .features-list li:before {
+      content: "✓";
+      color: #4a9eff;
+      font-weight: bold;
+      min-width: 20px;
+    }
+    
+    .card {
+      flex: 1;
+      background: rgba(20, 30, 48, 0.8);
+      border: 1px solid rgba(74, 158, 255, 0.2);
+      border-radius: 12px;
+      padding: 50px 40px;
+      width: 100%;
+      backdrop-filter: blur(10px);
+    }
+    .logo {
+      text-align: center;
+      margin-bottom: 40px;
+    }
+    .logo-icon {
+      font-size: 48px;
+      margin-bottom: 12px;
+    }
+    .logo-text {
+      font-size: 28px;
+      font-weight: 700;
+      color: #fff;
+      letter-spacing: -0.5px;
+    }
+    .logo-text span {
+      color: #4a9eff;
+    }
+    .subtitle {
+      text-align: center;
+      font-size: 12px;
+      color: #666;
+      margin-bottom: 30px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .form-group {
+      margin-bottom: 20px;
+    }
+    label {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 13px;
+      color: #aaa;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    input {
+      width: 100%;
+      padding: 12px 14px;
+      border: 1px solid rgba(74, 158, 255, 0.2);
+      background: rgba(10, 20, 40, 0.6);
+      color: #fff;
+      border-radius: 6px;
+      font-size: 14px;
+      transition: all 0.3s ease;
+    }
+    input::placeholder {
+      color: #555;
+    }
+    input:focus {
+      outline: none;
+      border-color: #4a9eff;
+      background: rgba(10, 20, 40, 0.8);
+      box-shadow: 0 0 10px rgba(74, 158, 255, 0.1);
+    }
+    .forgot-link {
+      display: block;
+      text-align: right;
+      font-size: 12px;
+      margin-top: 8px;
+      margin-bottom: 24px;
+    }
+    .forgot-link a {
+      color: #4a9eff;
+      text-decoration: none;
+      transition: color 0.3s ease;
+    }
+    .forgot-link a:hover {
+      color: #6aafff;
+      text-decoration: underline;
+    }
+    .btn {
+      width: 100%;
+      padding: 12px 20px;
+      background: linear-gradient(135deg, #4a9eff 0%, #2a7eef 100%);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-weight: 600;
+      font-size: 14px;
+      cursor: pointer;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      transition: all 0.3s ease;
+      box-shadow: 0 4px 15px rgba(74, 158, 255, 0.2);
+    }
+    .btn:hover {
+      background: linear-gradient(135deg, #6aafff 0%, #4a8eff 100%);
+      box-shadow: 0 6px 20px rgba(74, 158, 255, 0.3);
+      transform: translateY(-2px);
+    }
+    .btn:active {
+      transform: translateY(0);
+    }
+    .error {
+      background: rgba(255, 69, 96, 0.15);
+      border: 1px solid rgba(255, 69, 96, 0.3);
+      color: #ff6b7a;
+      padding: 12px 14px;
+      border-radius: 6px;
+      margin-bottom: 20px;
+      display: none;
+      font-size: 13px;
+    }
+    .signup-link {
+      text-align: center;
+      margin-top: 20px;
+      font-size: 13px;
+      color: #aaa;
+    }
+    .signup-link a {
+      color: #4a9eff;
+      text-decoration: none;
+      font-weight: 600;
+      transition: color 0.3s ease;
+    }
+    .signup-link a:hover {
+      color: #6aafff;
+    }
+    .divider {
+      color: #444;
+      margin: 0 8px;
+    }
+    .admin-link {
+      color: #4a9eff;
+      text-decoration: none;
+      font-weight: 600;
+      transition: color 0.3s ease;
+    }
+    .admin-link:hover {
+      color: #6aafff;
+    }
+    
+    @media (max-width: 768px) {
+      .container {
+        gap: 0;
+        padding: 0;
+      }
+      .hero {
+        display: none;
+      }
+      .card {
+        padding: 40px 30px;
+      }
+      .logo-text {
+        font-size: 24px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="hero">
+      <h1>Trade forex like a <span>pro</span>, without the risk</h1>
+      <p>Crown Markets is a simulated forex trading platform. Practice strategies, track your virtual portfolio, and compete on the leaderboard — all with virtual funds.</p>
+      <ul class="features-list">
+        <li>Live Market Dashboard</li>
+        <li>Virtual Trading Engine</li>
+        <li>Real-time Execution</li>
+        <li>Comprehensive Analytics</li>
+      </ul>
+    </div>
+    
+    <div class="card">
+      <div class="logo">
+        <div class="logo-icon">👑</div>
+        <div class="logo-text">Crown <span>Markets</span></div>
+      </div>
+      <div class="subtitle">Simulated Trading Platform</div>
+      <div class="error" id="err"></div>
+      <div class="form-group">
+        <label>Email Address</label>
+        <input type="email" id="email" placeholder="john@example.com" autofocus>
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <input type="password" id="pass" placeholder="Enter your password">
+      </div>
+      <a href="/forgot-password" class="forgot-link">Forgot password?</a>
+      <button class="btn" onclick="login()">Sign In</button>
+      <p class="signup-link">
+        <a href="/register">Create an account</a>
+        <span class="divider">|</span>
+        <a href="/admin" class="admin-link">Admin</a>
+      </p>
+    </div>
+  </div>
+
+  <script>
+    async function login() {
+      const email = document.getElementById('email').value.trim();
+      const pass = document.getElementById('pass').value;
+      const errEl = document.getElementById('err');
+      
+      if (!email || !pass) {
+        errEl.innerHTML = 'Please enter both email and password';
+        errEl.style.display = 'block';
+        return;
+      }
+      
+      try {
+        const r = await fetch('/api/auth/login', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password: pass, admin: false })
+        });
+        const d = await r.json();
+        if (d.success) {
+          window.location = d.data.redirect;
+        } else {
+          errEl.innerHTML = d.error || 'Login failed. Please try again.';
+          errEl.style.display = 'block';
+        }
+      } catch (e) {
+        errEl.innerHTML = 'Connection error. Please try again.';
+        errEl.style.display = 'block';
+      }
+    }
+    document.addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
+  </script>
+</body>
+</html>

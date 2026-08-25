@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Crown Markets - Trade Forex Like a Pro</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: linear-gradient(135deg, #0a1428 0%, #1a2a4a 100%);
+      color: #fff;
+      line-height: 1.6;
+    }
+    
+    header {
+      background: rgba(10, 20, 40, 0.8);
+      border-bottom: 1px solid rgba(74, 158, 255, 0.1);
+      backdrop-filter: blur(10px);
+      padding: 20px 40px;
+      position: sticky;
+      top: 0;
+      z-index: 1000;
+    }
+    
+    .header-content {
+      max-width: 1400px;
+      margin: 0 auto;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .logo {
+      font-size: 24px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+      color: #fff;
+    }
+    
+    .logo span {
+      color: #4a9eff;
+    }
+    
+    .nav {
+      display: flex;
+      gap: 40px;
+      align-items: center;
+    }
+    
+    .nav a {
+      color: #aaa;
+      text-decoration: none;
+      font-size: 14px;
+      transition: color 0.3s ease;
+    }
+    
+    .nav a:hover {
+      color: #4a9eff;
+    }
+    
+    .btn-group {
+      display: flex;
+      gap: 12px;
+    }
+    
+    .btn {
+      padding: 10px 24px;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      text-decoration: none;
+      display: inline-block;
+    }
+    
+    .btn-primary {
+      background: linear-gradient(135deg, #4a9eff 0%, #2a7eef 100%);
+      color: #fff;
+      box-shadow: 0 4px 15px rgba(74, 158, 255, 0.2);
+    }
+    
+    .btn-primary:hover {
+      box-shadow: 0 6px 20px rgba(74, 158, 255, 0.3);
+      transform: translateY(-2px);
+    }
+    
+    .btn-outline {
+      border: 1px solid #4a9eff;
+      color: #4a9eff;
+      background: transparent;
+    }
+    
+    .btn-outline:hover {
+      background: rgba(74, 158, 255, 0.1);
+    }
+    
+    /* Hero Section */
+    .hero {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 100px 40px;
+      text-align: center;
+    }
+    
+    .hero h1 {
+      font-size: 56px;
+      font-weight: 700;
+      margin-bottom: 20px;
+      line-height: 1.2;
+    }
+    
+    .hero h1 span {
+      color: #4a9eff;
+    }
+    
+    .hero p {
+      font-size: 18px;
+      color: #aaa;
+      margin-bottom: 40px;
+      max-width: 600px;
+      margin-left: auto;
+      margin-right: auto;
+      line-height: 1.8;
+    }
+    
+    .cta-buttons {
+      display: flex;
+      gap: 20px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    
+    .disclaimer {
+      font-size: 12px;
+      color: #666;
+      margin-top: 30px;
+    }
+    
+    /* Features Section */
+    .features {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 80px 40px;
+    }
+    
+    .section-title {
+      text-align: center;
+      font-size: 36px;
+      font-weight: 700;
+      margin-bottom: 50px;
+    }
+    
+    .section-subtitle {
+      text-align: center;
+      font-size: 14px;
+      color: #888;
+      margin-bottom: 40px;
+    }
+    
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 30px;
+    }
+    
+    .feature-card {
+      background: rgba(20, 30, 48, 0.6);
+      border: 1px solid rgba(74, 158, 255, 0.15);
+      border-radius: 10px;
+      padding: 40px;
+      text-align: center;
+      transition: all 0.3s ease;
+    }
+    
+    .feature-card:hover {
+      border-color: rgba(74, 158, 255, 0.4);
+      box-shadow: 0 8px 24px rgba(74, 158, 255, 0.1);
+      transform: translateY(-5px);
+    }
+    
+    .feature-icon {
+      font-size: 36px;
+      margin-bottom: 20px;
+    }
+    
+    .feature-card h3 {
+      font-size: 18px;
+      margin-bottom: 12px;
+      color: #fff;
+    }
+    
+    .feature-card p {
+      font-size: 13px;
+      color: #aaa;
+      line-height: 1.6;
+    }
+    
+    /* Steps Section */
+    .steps {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 80px 40px;
+      text-align: center;
+    }
+    
+    .steps-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 40px;
+      margin-top: 50px;
+    }
+    
+    .step {
+      flex: 1;
+    }
+    
+    .step-number {
+      width: 60px;
+      height: 60px;
+      background: linear-gradient(135deg, #4a9eff 0%, #2a7eef 100%);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 28px;
+      font-weight: 700;
+      margin: 0 auto 20px;
+    }
+    
+    .step h3 {
+      font-size: 16px;
+      margin-bottom: 12px;
+      color: #fff;
+    }
+    
+    .step p {
+      font-size: 13px;
+      color: #aaa;
+      line-height: 1.6;
+    }
+    
+    /* CTA Section */
+    .cta-section {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 80px 40px;
+      background: linear-gradient(135deg, rgba(74, 158, 255, 0.1) 0%, rgba(74, 158, 255, 0.05) 100%);
+      border-radius: 12px;
+      text-align: center;
+      border: 1px solid rgba(74, 158, 255, 0.2);
+    }
+    
+    .cta-section h2 {
+      font-size: 36px;
+      margin-bottom: 20px;
+      font-weight: 700;
+    }
+    
+    .cta-section p {
+      font-size: 16px;
+      color: #aaa;
+      margin-bottom: 30px;
+    }
+    
+    /* Footer */
+    footer {
+      border-top: 1px solid rgba(74, 158, 255, 0.1);
+      padding: 40px;
+      text-align: center;
+      font-size: 13px;
+      color: #666;
+    }
+    
+    @media (max-width: 768px) {
+      header {
+        padding: 15px 20px;
+      }
+      
+      .nav {
+        gap: 20px;
+      }
+      
+      .hero {
+        padding: 60px 20px;
+      }
+      
+      .hero h1 {
+        font-size: 36px;
+      }
+      
+      .hero p {
+        font-size: 16px;
+      }
+      
+      .features, .steps, .cta-section {
+        padding: 50px 20px;
+      }
+      
+      .section-title {
+        font-size: 28px;
+      }
+      
+      .cta-buttons {
+        flex-direction: column;
+      }
+      
+      .btn {
+        width: 100%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-content">
+      <a href="/" class="logo">
+        👑 Crown <span>Markets</span>
+      </a>
+      <nav class="nav">
+        <a href="#features">Features</a>
+        <a href="#howitworks">How It Works</a>
+        <a href="#pricing">Pricing</a>
+        <div class="btn-group">
+          <a href="/login" class="btn btn-outline">Sign In</a>
+          <a href="/register" class="btn btn-primary">Start Trading</a>
+        </div>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <!-- Hero Section -->
+    <section class="hero">
+      <h1>Trade forex like a <span>pro</span>, without the risk</h1>
+      <p>Crown Markets is a simulated forex trading platform. Practice strategies, track your virtual portfolio, and compete on the leaderboard — all with virtual funds. No real money at stake.</p>
+      <div class="cta-buttons">
+        <a href="/register" class="btn btn-primary">Get Started Free</a>
+        <a href="/login" class="btn btn-outline">Demo Account</a>
+      </div>
+      <div class="disclaimer">
+        Access free today. No credit card required. Simulated trades execute in real-time.
+      </div>
+    </section>
+
+    <!-- Features Section -->
+    <section class="features" id="features">
+      <h2 class="section-title">Everything a trading terminal needs</h2>
+      <p class="section-subtitle">Advanced features to learn and practice from trading</p>
+      
+      <div class="features-grid">
+        <div class="feature-card">
+          <div class="feature-icon">📊</div>
+          <h3>Live Market Dashboard</h3>
+          <p>Real-time forex data and charts. Track currency pairs, spreads, and market movements as they happen.</p>
+        </div>
+        
+        <div class="feature-card">
+          <div class="feature-icon">🎯</div>
+          <h3>Virtual Portfolio</h3>
+          <p>Manage your simulated positions with virtual capital. No real money at risk while you learn.</p>
+        </div>
+        
+        <div class="feature-card">
+          <div class="feature-icon">📈</div>
+          <h3>Trading Execution</h3>
+          <p>Execute trades with realistic spreads and order types. Experience authentic market conditions.</p>
+        </div>
+        
+        <div class="feature-card">
+          <div class="feature-icon">🏆</div>
+          <h3>Leaderboards</h3>
+          <p>Compete with other traders. Track performance metrics and benchmark against the community.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- How It Works Section -->
+    <section class="steps" id="howitworks">
+      <h2 class="section-title">Start trading in minutes</h2>
+      <p class="section-subtitle">Three simple steps to launch your trading journey</p>
+      
+      <div class="steps-grid">
+        <div class="step">
+          <div class="step-number">1</div>
+          <h3>Create your account</h3>
+          <p>Sign up with your email in seconds. Instant access to your virtual trading account.</p>
+        </div>
+        
+        <div class="step">
+          <div class="step-number">2</div>
+          <h3>Unlock live trading</h3>
+          <p>Fund your account with virtual capital. Explore real forex market conditions risk-free.</p>
+        </div>
+        
+        <div class="step">
+          <div class="step-number">3</div>
+          <h3>Track performance</h3>
+          <p>Monitor your progress. Analyze trades and refine your strategy with comprehensive analytics.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- CTA Section -->
+    <section class="cta-section">
+      <h2>Ready to build your trading track record?</h2>
+      <p>Start learning and practicing forex trading with a simulated account today.</p>
+      <a href="/register" class="btn btn-primary">Start Free Trading →</a>
+    </section>
+  </main>
+
+  <footer>
+    <p>&copy; 2024 Crown Markets. This is a simulated trading platform for educational purposes only.</p>
+  </footer>
+</body>
+</html>
