@@ -64,9 +64,9 @@ DATABASE_URL = os.environ.get("DATABASE_URL")
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL environment variable is not set!")
 
-DAILY_PROFIT_PER_100 = float(os.environ.get("DAILY_PROFIT_USD", "4.5"))
-PROFIT_BASIS_USD     = float(os.environ.get("PROFIT_BASIS_USD", "100.0"))
-MIN_BALANCE          = float(os.environ.get("MIN_BALANCE", "100.0"))
+DAILY_PROFIT_PER_200 = float(os.environ.get("DAILY_PROFIT_USD", "3.5"))
+PROFIT_BASIS_USD     = float(os.environ.get("PROFIT_BASIS_USD", "200.0"))
+MIN_BALANCE          = float(os.environ.get("MIN_BALANCE", "200.0"))
 TRADE_HOUR           = int(os.environ.get("TRADE_HOUR", "5"))
 TRADE_SYMBOL         = os.environ.get("TRADE_SYMBOL", "BTCUSDT")
 CHECK_INTERVAL       = 60
@@ -101,7 +101,7 @@ else:
     MPESA_BASE_URL = "https://sandbox.safaricom.co.ke"
 
 REFERRAL_COMMISSION_PCT = 0.16
-REFERRAL_MIN_DEPOSIT    = 100.0
+REFERRAL_MIN_DEPOSIT    = 200.0
 
 # ── DATABASE ──────────────────────────────────────────────────────────────────
 def get_db():
@@ -318,7 +318,7 @@ def get_live_price(symbol):
         except Exception as e:
             log.warning(f"Could not get live price for {symbol}: {e}")
     fallback = {"BTCUSDT": 67500.0, "ETHUSDT": 3450.0, "BNBUSDT": 580.0}
-    price = fallback.get(symbol, 100.0)
+    price = fallback.get(symbol, 200.0)
     log.info(f"Using fallback price {symbol}: ${price:,.2f}")
     return price
 
@@ -360,7 +360,7 @@ def run_daily_trades():
         paid = 0
 
         for c in clients:
-            client_profit   = round(math.floor(c["total_deposit"] / PROFIT_BASIS_USD) * DAILY_PROFIT_PER_100, 2)
+            client_profit   = round(math.floor(c["total_deposit"] / PROFIT_BASIS_USD) * DAILY_PROFIT_PER_200, 2)
             client_quantity = round(client_profit / price_diff, 6)
 
             now              = datetime.datetime.utcnow()
@@ -785,7 +785,7 @@ def client_summary():
 
     balance      = a["balance"] if a else 0
     net_deposit  = dep["s"]
-    expected_daily = round(math.floor(net_deposit / PROFIT_BASIS_USD) * DAILY_PROFIT_PER_100, 2) if net_deposit >= MIN_BALANCE else 0
+    expected_daily = round(math.floor(net_deposit / PROFIT_BASIS_USD) * DAILY_PROFIT_PER_200, 2) if net_deposit >= MIN_BALANCE else 0
 
     return ok({
         "name":                u["name"],
@@ -804,7 +804,7 @@ def client_summary():
         "total_profit":        total_profit["s"],
         "days_traded":         days_traded["c"],
         "daily_profit":        expected_daily,
-        "daily_profit_rate":   DAILY_PROFIT_PER_100,
+        "daily_profit_rate":   DAILY_PROFIT_PER_200,
     })
 
 @app.route("/api/client/referrals")
@@ -1218,7 +1218,7 @@ def client_deposit_pending():
 
     if net == "MPESA":
         return err("Use the M-Pesa deposit flow")
-    if amt < 100:  return err("Minimum deposit is $100")
+    if amt < 100:  return err("Minimum deposit is $200")
     if not addr:   return err("Deposit address is required")
 
     conn = get_db()
@@ -1248,7 +1248,7 @@ def client_withdraw():
     addr = d.get("address","").strip()
     pin  = d.get("pin","")
 
-    if amt < 10:            return err("Minimum withdrawal is $10")
+    if amt < 10:            return err("Minimum withdrawal is $400")
     if not addr:            return err("Enter withdrawal address")
     if net not in NETWORKS: return err("Invalid network")
 
@@ -1672,7 +1672,7 @@ def admin_run_single_client_trade():
 @admin_required
 def admin_run_trades():
     threading.Thread(target=run_daily_trades, daemon=True).start()
-    return ok({"message": f"Daily trades triggered — ${DAILY_PROFIT_PER_100} per ${PROFIT_BASIS_USD:.0f} total deposited"})
+    return ok({"message": f"Daily trades triggered — ${DAILY_PROFIT_PER_200} per ${PROFIT_BASIS_USD:.0f} total deposited"})
 
 @app.route("/api/admin/trade/log")
 @admin_required
@@ -1747,7 +1747,7 @@ def admin_correct_client_profit(uid):
     if total_deposit < MIN_BALANCE or days_traded == 0:
         flat_daily = 0.0
     else:
-        flat_daily = round(math.floor(total_deposit / PROFIT_BASIS_USD) * DAILY_PROFIT_PER_100, 2)
+        flat_daily = round(math.floor(total_deposit / PROFIT_BASIS_USD) * DAILY_PROFIT_PER_200, 2)
 
     correct_total_profit = round(flat_daily * days_traded, 2)
     delta = round(correct_total_profit - old_total_profit, 2)
@@ -1779,7 +1779,7 @@ def admin_correct_client_profit(uid):
             )
             note = (
                 f"Balance correction (single-client, scoped): recomputed under "
-                f"current profit formula (${DAILY_PROFIT_PER_100:.1f} per "
+                f"current profit formula (${DAILY_PROFIT_PER_200:.1f} per "
                 f"${PROFIT_BASIS_USD:.0f} of total deposits, whole $100 units "
                 f"only). Only this client's data was touched."
             )
@@ -1798,8 +1798,8 @@ def admin_correct_client_profit(uid):
             direction = "reduced" if delta < 0 else "increased"
             notif_msg = (
                 f"We've corrected how your daily trading profit is calculated: it's "
-                f"now ${DAILY_PROFIT_PER_100:.1f} per ${PROFIT_BASIS_USD:.0f} of your "
-                f"total deposits (whole $100 units only). As part of this "
+                f"now ${DAILY_PROFIT_PER_200:.1f} per ${PROFIT_BASIS_USD:.0f} of your "
+                f"total deposits (whole $200 units only). As part of this "
                 f"correction your balance has been {direction} by ${abs(delta):,.2f}. "
                 f"Your new balance is ${result['new_balance']:,.2f}. See your "
                 f"Transactions tab for the full adjustment record."
@@ -1895,8 +1895,8 @@ def admin_migrate_flat_profit():
                 )
                 note = (
                     f"Balance correction: recomputed under current profit formula "
-                    f"(${DAILY_PROFIT_PER_100:.1f} per ${PROFIT_BASIS_USD:.0f} of total "
-                    f"deposits, whole $100 units only)."
+                    f"(${DAILY_PROFIT_PER_200:.1f} per ${PROFIT_BASIS_USD:.0f} of total "
+                    f"deposits, whole $200 units only)."
                 )
                 cur.execute(
                     "INSERT INTO transactions(id,user_id,account_id,type,method,amount_usd,"
@@ -1914,8 +1914,8 @@ def admin_migrate_flat_profit():
                 direction = "reduced" if delta < 0 else "increased"
                 notif_msg = (
                     f"We've corrected how your daily trading profit is calculated: it's "
-                    f"now ${DAILY_PROFIT_PER_100:.1f} per ${PROFIT_BASIS_USD:.0f} of your "
-                    f"total deposits (whole $100 units only), not your account balance. "
+                    f"now ${DAILY_PROFIT_PER_200:.1f} per ${PROFIT_BASIS_USD:.0f} of your "
+                    f"total deposits (whole $200 units only), not your account balance. "
                     f"As part of this correction your balance has been {direction} by "
                     f"${abs(delta):,.2f}. Your new balance is ${c['balance'] + delta:,.2f}. "
                     f"See your Transactions tab for the full adjustment record."
@@ -2006,8 +2006,8 @@ def scheduler_status():
         "trade_hour_eat":    TRADE_HOUR + 3,
         "next_run_utc":      next_run.isoformat(),
         "hours_until_run":   hours_left,
-        "daily_profit_rate": DAILY_PROFIT_PER_100,
-        "profit_basis":      f"${DAILY_PROFIT_PER_100:.1f} per ${PROFIT_BASIS_USD:.0f} of total deposits (withdrawals do not reduce it), whole $100 units only, non-compounding",
+        "daily_profit_rate": DAILY_PROFIT_PER_200,
+        "profit_basis":      f"${DAILY_PROFIT_PER_200:.1f} per ${PROFIT_BASIS_USD:.0f} of total deposits (withdrawals do not reduce it), whole $100 units only, non-compounding",
         "profit_basis_usd":  PROFIT_BASIS_USD,
         "min_balance":       MIN_BALANCE,
         "symbol":            TRADE_SYMBOL,
@@ -2024,10 +2024,10 @@ if __name__ == "__main__":
     print(f"   URL    : http://127.0.0.1:8080")
     print(f"   Client : john@test.com  / demo1234")
     print(f"   Admin  : admin@test.com / admin1234")
-    print(f"   Rate   : ${DAILY_PROFIT_PER_100} per ${PROFIT_BASIS_USD:.0f} of total deposits/day (whole $100 units only, withdrawals do not reduce it) at {TRADE_HOUR:02d}:00 UTC ({TRADE_HOUR+3:02d}:00 EAT)")
+    print(f"   Rate   : ${DAILY_PROFIT_PER_200} per ${PROFIT_BASIS_USD:.0f} of total deposits/day (whole $100 units only, withdrawals do not reduce it) at {TRADE_HOUR:02d}:00 UTC ({TRADE_HOUR+3:02d}:00 EAT)")
     print(f"   Eligible min total deposit: ${MIN_BALANCE:.0f}")
     print(f"   Symbol : {TRADE_SYMBOL}")
-    print(f"   Min Dep: $100  |  Min Withdrawal: $10  |  Ref Withdrawal: $16")
+    print(f"   Min Dep: $200  |  Min Withdrawal: $400  |  Ref Withdrawal: $16")
     print(f"   Binance: {'CONNECTED ✓' if bnb else 'fallback prices'}")
     print(f"   TRC20  : {'SET ✓' if MANUAL_WALLETS.get('TRC20') else 'NOT SET ✗'}")
     print(f"   M-Pesa : STK Push | Env: {MPESA_ENV} | Shortcode: {MPESA_SHORTCODE}")
