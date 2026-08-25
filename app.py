@@ -1,5 +1,5 @@
 """
-Crown Markets v5.13 - $4.5 PROFIT PER $100 BALANCE (4.5% daily)
+Crown Markets v5.27 - $4.5 PROFIT PER $100 OF TOTAL DEPOSITS (4.5% daily)
 - Scheduler starts at module level (works with gunicorn on Render)
 - One controlled trade per client per day
 - Trade profit scales: $4.5 per $100 of balance
@@ -9,216 +9,6 @@ Crown Markets v5.13 - $4.5 PROFIT PER $100 BALANCE (4.5% daily)
 - Min deposit: $100
 - Withdrawal deducted only on admin approval
 - Database: PostgreSQL (psycopg2)
-- FIX v5.5: total_withdrawals now correctly summed in client_summary
-            both WITHDRAWAL and REFERRAL_WITHDRAWAL counted
-            referral withdrawal rejection now restores ref_balance
-            admin clients list now includes total_deposits/withdrawals
-- FIX v5.6: referral withdrawal now requires referred user to have made a deposit
-- NEW v5.7: M-Pesa manual deposit method added
-- NEW v5.8: M-Pesa STK Push (Daraja API) — client enters phone + KES amount,
-            receives real M-Pesa PIN prompt on their phone,
-            callback auto-approves and credits account on success
-- FIX v5.9: STK Push route renamed to /api/client/mpesa/stk-push (dashboard match)
-            Added /api/client/mpesa/status polling endpoint
-- FIX v5.10: CRITICAL — fixed double/triple daily-profit crediting caused by
-            multiple gunicorn workers each running their own scheduler thread
-            (and/or repeated manual "Run Trades" clicks) racing on a
-            SELECT-then-INSERT check. daily_trade_log now has a UNIQUE
-            (user_id, date) constraint and the "already traded today" check
-            is now a single atomic INSERT ... ON CONFLICT DO NOTHING. Only
-            the worker that successfully claims the slot credits the
-            balance — every other concurrent attempt is a guaranteed no-op.
-            Added a process-local lock so manual admin trade-runs can't
-            overlap a scheduled run either.
-- FIX v5.11: CHANGED PROFIT BASIS — profit is now a flat $8 per $100 of a
-            client's NET DEPOSITS (completed deposits minus completed
-            principal WITHDRAWALs), not 8% of their live/compounding
-            balance. Previously the formula was (balance/100)*8, which
-            compounds daily (8% of an ever-growing number), so long-tenure
-            clients silently earned far more than "$8 per $100 deposited"
-            implies (e.g. 12 days of compounding ≈ 2.5x the flat amount).
-            Now profit is (net_deposit/100)*8 every day — the daily payout
-            stays constant unless the client deposits more or withdraws
-            principal. Referral withdrawals are NOT counted against net
-            deposit (they only ever draw from ref_balance, never principal).
-- NEW v5.12: Free-tier Render has no shell access, so the balance-correction
-            migration (compounded → flat 8%/100 net deposit) now runs
-            in-process via a protected admin endpoint instead of a standalone
-            script: POST /api/admin/migrate/flat-profit (dry run by default,
-            {"apply": true} to commit). Added a notifications table + client
-            endpoints so affected clients see an in-platform message
-            explaining any balance correction — the migration endpoint
-            auto-creates one for every client whose balance changes. Also
-            added a general-purpose admin broadcast/direct-message endpoint.
-- NEW v5.13: Password recovery added.
-            - /forgot-password page + POST /api/auth/forgot-password:
-              self-service reset for clients. No SMTP is configured for
-              Crown Markets, so identity is verified with email + the
-              client's registered phone + their 6-digit PIN (the same PIN
-              already used for withdrawals) instead of an email link.
-            - POST /api/admin/client/<uid>/reset-password: lets an admin
-              set a new password directly for any client from the admin
-              dashboard's client-edit view, with an optional in-platform
-              notification (reuses the existing notifications table).
-- FIX v5.14: Startup banner incorrectly printed "Min Withdrawal: $1,000"
-            even though /api/client/withdraw has always enforced a $10
-            minimum. Banner text corrected to match actual enforced value
-            (no behavior change).
-- NEW v5.15: Added POST /api/admin/trade/run-single — lets an admin backfill
-            today's trade for ONE specific client (e.g. if the scheduled
-            run was skipped for them due to a DB outage). Uses the same
-            eligibility/payout logic as run_daily_trades(), scoped to a
-            single user_id, and is idempotent via the same
-            UNIQUE(user_id, date) constraint.
-- FIX v5.16: PROFIT BASIS DECOUPLED FROM ELIGIBILITY MINIMUM — profit rate
-            is now $4.5 per $90 of net deposit (was $4.5 per $100). The
-            minimum net deposit required to be eligible for daily trades
-            remains $100 (MIN_BALANCE, unchanged) — these were previously
-            tied together by both hardcoding "100.0"; they are now two
-            independent constants (MIN_BALANCE for eligibility,
-            PROFIT_BASIS_USD for the profit-per-unit divisor).
-- NEW v5.17: Added GET /api/client/balance/history — a server-computed,
-            chronological running balance per client, built directly from
-            their own completed DEPOSIT/WITHDRAWAL/ADJUSTMENT transactions
-            plus daily_trade_log profit rows (the dashboard's "Balance Over
-            Time" chart now calls this instead of reconstructing balance
-            client-side in JS). Also fixed admin_adjust_balance and the
-            flat-profit migration endpoint, which previously stored
-            ADJUSTMENT amounts as abs(amount) — losing the direction of
-            negative corrections and silently breaking any balance
-            reconstruction. Both now store the true signed amount.
-- FIX v5.18: CRITICAL — net_deposit (deposits minus WITHDRAWAL-type
-            transactions) could go negative for any long-tenured, profitable
-            client, because withdrawing already-earned PROFIT is recorded
-            as the same 'WITHDRAWAL' transaction type as withdrawing
-            principal — there's no way to tell them apart at the database
-            level. Once a client's lifetime withdrawals exceeded their
-            lifetime deposits (which happens naturally as profit
-            accumulates and gets cashed out), net_deposit went negative and
-            STAYED negative — a fresh deposit only nudged the number
-            slightly, so the client could remain permanently below
-            MIN_BALANCE and locked out of daily trades no matter how much
-            they kept depositing, even though their real account balance
-            was healthy. net_deposit is now floored at $0 everywhere it's
-            computed (run_daily_trades, client_summary,
-            admin_run_single_client_trade, admin_migrate_flat_profit) via
-            SQL GREATEST(0, ...) / Python max(0.0, ...), so a new deposit
-            always restores eligibility as expected.
-- CHANGE v5.19: SUPERSEDES v5.18's floor-at-zero approach — withdrawals no
-            longer factor into the trade eligibility/profit basis AT ALL.
-            The basis (still called net_deposit in code/API for backward
-            compatibility) is now simply a client's GROSS total completed
-            deposits. This was requested directly: eligibility should be
-            based on total deposits only, full stop — the only guard is a
-            defensive check that refuses to trade a client whose deposit
-            total is somehow negative (which should never happen under
-            normal operation, since deposit amounts are always stored
-            positive), logging a warning and skipping them rather than
-            crediting profit off a nonsensical number.
-- CHANGE v5.20: Trade eligibility now ALSO requires the client's CURRENT
-            account balance to be >= MIN_BALANCE, in addition to gross total
-            deposits >= MIN_BALANCE (from v5.19). Closes the gap where a
-            client could deposit once, withdraw the full principal back out,
-            and keep earning daily profit indefinitely off a deposit total
-            that no longer reflects any real money in their account.
-            Applied in run_daily_trades(), admin_run_single_client_trade(),
-            and client_summary()'s daily_profit preview. The
-            admin_migrate_flat_profit() historical-correction tool is
-            intentionally left on deposit-total-only logic, since it can't
-            know a client's balance at each past trade date, only today's.
-- CHANGE v5.21: SUPERSEDES v5.16/v5.19/v5.20's deposit-based profit basis —
-            reverted to the ORIGINAL design stated at the top of this file:
-            profit is $4.5 per $100 of a client's CURRENT ACCOUNT BALANCE
-            (PROFIT_BASIS_USD default back to 100.0), not gross/net deposit
-            total. This is intentionally compounding — as profit is credited
-            to balance, the next day's profit is calculated off the new,
-            larger balance. This was requested directly, reversing the
-            "flat, non-compounding" rationale from v5.11. Eligibility is
-            now simply CURRENT balance >= MIN_BALANCE — the separate
-            deposit-total eligibility check from v5.19/v5.20 no longer
-            applies, since deposit total is no longer the profit basis.
-            Applied in run_daily_trades(), admin_run_single_client_trade(),
-            and client_summary()'s daily_profit preview.
-            admin_migrate_flat_profit() is a historical-correction tool for
-            the earlier deposit-based migration and is intentionally left
-            untouched — it is unrelated to this change and not expected to
-            be run again under the current (balance-based) formula.
-- CHANGE v5.22: Profit now only counts WHOLE $100 units of balance — a
-            partial remainder below $100 earns nothing extra. Previously
-            $613.11 was treated as 6.1311 units (profit = 613.11/100*4.5 =
-            $27.59); now it's floor(613.11/100) = 6 whole units, so
-            profit = 6*4.5 = $27.00 — the $13.11 remainder is simply not
-            counted until it grows into a full $100. Applied via
-            math.floor() in run_daily_trades(), admin_run_single_client_
-            trade(), and client_summary()'s daily_profit preview. Trade
-            eligibility (balance >= MIN_BALANCE) is unchanged.
-- CHANGE v5.23: SUPERSEDES v5.21/v5.22's balance-based, compounding basis —
-            profit basis is back to a client's GROSS TOTAL COMPLETED
-            DEPOSITS (not current balance — balance is no longer read for
-            the profit calculation at all, only for display and for the
-            $10/withdrawal-amount check). The whole-$100-unit floor from
-            v5.22 is kept: only complete $100 units of the deposit total
-            count (e.g. $450 deposited = 4 units = $18.00/day, not
-            $20.25). Eligibility is simply gross total deposits >=
-            MIN_BALANCE. This was requested directly, along with fixing
-            already-logged trades that were credited under the v5.21/v5.22
-            balance-based formula: run POST /api/admin/migrate/flat-profit
-            (dry run by default, {"apply": true} to commit) to recompute
-            every client's historical daily_trade_log rows under this
-            deposit-based formula and correct their account balance to
-            match — this is the tool to use for a client who, e.g., has 4
-            days of trades logged at the wrong amount.
-- CHANGE v5.24: SUPERSEDED — see v5.27. Previously the profit basis was
-            (total completed DEPOSITs − total completed principal
-            WITHDRAWALs), floored at $0. That subtraction has now been
-            removed entirely; see v5.27 below for the current (reverted)
-            behavior.
-- NEW v5.25: Added POST /api/admin/client/<uid>/correct-profit — a
-            SINGLE-CLIENT-SCOPED profit correction tool. It's the direct
-            response to a real incident: admin_migrate_flat_profit() was
-            run against the full client base intending to fix one client's
-            balance, but because that endpoint rewrites a client's ENTIRE
-            daily_trade_log history under today's formula with no
-            awareness that the formula has changed multiple times, it
-            silently overwrote every client's legitimately-different-
-            formula history too — a large, unintended data change that
-            required a Render point-in-time database restore to recover
-            from. This new endpoint only ever reads/writes the ONE
-            user_id it's given; it is structurally incapable of touching
-            any other client. admin_migrate_flat_profit() is kept for
-            reference but its docstring now carries an explicit danger
-            warning and points admins to this endpoint instead. The admin
-            dashboard's "Recalculate Client Profits" (all-clients) button
-            has been removed and replaced with a per-client "Fix Profit"
-            action scoped the same way.
-- FIX v5.26: The admin dashboard's "Run Missed Trade" modal displayed a
-            misleading "Net Deposit" figure computed client-side as
-            total_deposits − total_withdrawals, where total_withdrawals
-            (from admin_clients()) combines WITHDRAWAL and
-            REFERRAL_WITHDRAWAL together. A client who had only ever
-            withdrawn referral commissions (never touching trading
-            principal) would show a deeply negative figure there and
-            appear ineligible. Added a dedicated trading_basis field to
-            admin_clients() so the dashboard doesn't have to reconstruct
-            this figure itself. Superseded by v5.27 below, which changes
-            what trading_basis actually measures.
-- CHANGE v5.27: SUPERSEDES v5.24/v5.26 — withdrawals (of ANY type,
-            including plain principal WITHDRAWAL) no longer reduce trade
-            eligibility or the profit basis AT ALL. This was requested
-            directly after a case where a client's referral withdrawals
-            were correctly excluded but a separate, real WITHDRAWAL of
-            principal exceeded their deposit total and zeroed out their
-            basis — the decision was to stop subtracting withdrawals from
-            the basis entirely rather than distinguish "principal" vs
-            "profit" withdrawals. The basis is now simply a client's GROSS
-            TOTAL COMPLETED DEPOSITS, exactly as in v5.23, with the
-            whole-$100-unit floor still applied. Applied in
-            run_daily_trades(), admin_run_single_client_trade(),
-            client_summary(), admin_correct_client_profit(),
-            admin_migrate_flat_profit(), and the trading_basis field in
-            admin_clients(). The total_principal_withdrawals field is kept
-            in admin_clients() for display/reference only — it no longer
-            feeds into trading_basis.
 """
 
 import os, hashlib, secrets, datetime, uuid, logging, threading, random, base64, math
@@ -556,8 +346,6 @@ def run_daily_trades():
 
         conn = get_db()
         cur  = conn.cursor()
-        # CHANGE v5.27: profit basis is GROSS TOTAL DEPOSITS ONLY —
-        # withdrawals (of any type) no longer reduce it.
         cur.execute(
             "SELECT u.id, u.name, a.id AS account_id, a.balance, "
             "  COALESCE((SELECT SUM(amount_usd) FROM transactions "
@@ -572,8 +360,6 @@ def run_daily_trades():
         paid = 0
 
         for c in clients:
-            # Only whole $100 units of total deposits count — a partial
-            # remainder below $100 does not earn a partial profit.
             client_profit   = round(math.floor(c["total_deposit"] / PROFIT_BASIS_USD) * DAILY_PROFIT_PER_100, 2)
             client_quantity = round(client_profit / price_diff, 6)
 
@@ -771,6 +557,11 @@ def mpesa_stk_push(phone, amount_kes, account_ref, description):
     except Exception as e:
         log.error(f"STK Push error: {e}")
         return False, "M-Pesa service unavailable. Please try again."
+
+# ── FAVICON ───────────────────────────────────────────────────────────────────
+@app.route("/favicon.ico")
+def favicon():
+    return "", 204
 
 # ── PAGE ROUTES ───────────────────────────────────────────────────────────────
 @app.route("/")
@@ -993,12 +784,7 @@ def client_summary():
     conn.close()
 
     balance      = a["balance"] if a else 0
-    # CHANGE v5.27: profit basis is GROSS TOTAL DEPOSITS ONLY — withdrawals
-    # no longer reduce it. net_deposit is kept as the field name for
-    # backward compatibility with the client dashboard.
     net_deposit  = dep["s"]
-    # Only whole $100 units of the basis count toward profit — a
-    # remainder below $100 doesn't earn a partial amount.
     expected_daily = round(math.floor(net_deposit / PROFIT_BASIS_USD) * DAILY_PROFIT_PER_100, 2) if net_deposit >= MIN_BALANCE else 0
 
     return ok({
@@ -1124,15 +910,6 @@ def client_trades():
 @app.route("/api/client/balance/history")
 @login_required
 def client_balance_history():
-    """
-    Server-computed, chronological running balance for THIS client, built
-    directly from their own completed transactions (DEPOSIT +, WITHDRAWAL -,
-    ADJUSTMENT signed) plus daily_trade_log profit entries. Replaces the old
-    approach of reconstructing balance client-side in the dashboard JS,
-    which could drift (e.g. ADJUSTMENT used to store an unsigned amount).
-    REFERRAL_WITHDRAWAL is intentionally excluded — it only ever draws from
-    ref_balance, never the main trading balance.
-    """
     uid  = session["user_id"]
     conn = get_db()
     cur  = conn.cursor()
@@ -1165,7 +942,7 @@ def client_balance_history():
             delta = t["amount_usd"]
         elif t["type"] == "WITHDRAWAL":
             delta = -t["amount_usd"]
-        else:  # ADJUSTMENT — amount_usd is stored signed at source
+        else:
             delta = t["amount_usd"]
         events.append((ts or "", delta))
 
@@ -1180,9 +957,6 @@ def client_balance_history():
         running = round(running + delta, 2)
         points.append({"date": ts[:10] if ts else "", "timestamp": ts, "balance": running})
 
-    # Always end on the true stored balance, so any legacy rows recorded
-    # before signed ADJUSTMENT amounts existed can't leave the chart's
-    # final point drifting from the client's real, current balance.
     points.append({"date": "Now", "timestamp": _now(), "balance": current_balance})
 
     return ok(points)
@@ -1260,8 +1034,6 @@ def client_deposit_address():
     if not wallet: return err("Deposit address not configured. Contact support.")
     return ok({"address": wallet, "network": net, "mode": "manual"})
 
-
-# ── M-PESA STK PUSH (v5.9 — route fixed to match dashboard) ─────────────────
 @app.route("/api/client/mpesa/stk-push", methods=["POST"])
 @login_required
 def client_mpesa_stk_push():
@@ -1330,8 +1102,6 @@ def client_mpesa_stk_push():
         "message":             f"M-Pesa prompt sent to {phone_fmt}. Enter your PIN to complete."
     })
 
-
-# ── M-PESA STATUS POLLING (v5.9 — NEW) ───────────────────────────────────────
 @app.route("/api/client/mpesa/status")
 @login_required
 def client_mpesa_status():
@@ -1367,8 +1137,6 @@ def client_mpesa_status():
         "message":    tx["note"] or ""
     })
 
-
-# ── M-PESA CALLBACK (Daraja → this endpoint) ─────────────────────────────────
 @app.route("/mpesa/callback", methods=["POST"])
 def mpesa_callback():
     try:
@@ -1437,7 +1205,6 @@ def mpesa_callback():
         log.error(f"M-Pesa callback error: {e}")
 
     return jsonify({"ResultCode": 0, "ResultDesc": "Accepted"})
-
 
 @app.route("/api/client/deposit/pending", methods=["POST"])
 @login_required
@@ -1687,9 +1454,6 @@ def admin_reject_withdrawal():
 def admin_clients():
     conn = get_db()
     cur  = conn.cursor()
-    # CHANGE v5.27: trading_basis is now GROSS TOTAL DEPOSITS ONLY —
-    # withdrawals no longer reduce it. total_principal_withdrawals is kept
-    # for display/reference only.
     cur.execute(
         "SELECT u.id, u.name, u.email, u.phone, u.referral_code, u.created_at, "
         "a.balance, a.equity, a.ref_balance, "
@@ -1773,7 +1537,6 @@ def admin_edit_client(uid):
         cur.close(); conn.close()
         return err("That email is already used by another account", 409)
 
-# ── ADMIN: RESET CLIENT PASSWORD (v5.13) ──────────────────────────────────────
 @app.route("/api/admin/client/<uid>/reset-password", methods=["POST"])
 @admin_required
 def admin_reset_client_password(uid):
@@ -1810,20 +1573,9 @@ def admin_reset_client_password(uid):
     log.info(f"Admin reset password for client {u['email']}")
     return ok({"message": f"Password reset for {u['name']}"})
 
-# ── ADMIN: RUN MISSED TRADE FOR ONE CLIENT (v5.15 — NEW) ──────────────────────
 @app.route("/api/admin/trade/run-single", methods=["POST"])
 @admin_required
 def admin_run_single_client_trade():
-    """
-    Backfill today's trade for ONE client who was skipped by the scheduled
-    run (e.g. due to a DB outage during the trigger window). Uses the same
-    eligibility/payout logic as run_daily_trades(), scoped to a single
-    user_id. Idempotent via the same UNIQUE(user_id, date) constraint on
-    daily_trade_log — calling it twice for the same client/day is a no-op
-    with a clear error, not a double payout.
-
-    Body: { "user_id": "<id>" }
-    """
     d   = request.json or {}
     uid = d.get("user_id", "").strip()
     if not uid:
@@ -1832,8 +1584,6 @@ def admin_run_single_client_trade():
     conn = get_db()
     cur  = conn.cursor()
 
-    # CHANGE v5.27: profit basis is GROSS TOTAL DEPOSITS ONLY — withdrawals
-    # no longer reduce it.
     cur.execute(
         "SELECT u.id, u.name, a.id AS account_id, a.balance, "
         "  COALESCE((SELECT SUM(amount_usd) FROM transactions "
@@ -1868,8 +1618,6 @@ def admin_run_single_client_trade():
         cur.close(); conn.close()
         return err("Price diff was zero — try again")
 
-    # Only whole $100 units of TOTAL DEPOSITS count — a partial remainder
-    # below $100 does not earn a partial profit.
     client_profit   = round(math.floor(c["total_deposit"] / PROFIT_BASIS_USD) * DAILY_PROFIT_PER_100, 2)
     client_quantity = round(client_profit / price_diff, 6)
 
@@ -1963,19 +1711,6 @@ def admin_trades():
 @app.route("/api/admin/client/<uid>/correct-profit", methods=["POST"])
 @admin_required
 def admin_correct_client_profit(uid):
-    """
-    SCOPED, SINGLE-CLIENT profit correction (v5.25).
-
-    Recomputes ONLY this one client's daily_trade_log rows under the
-    CURRENT profit formula ($4.5 per $100 of gross total deposits, whole
-    $100 units only — CHANGE v5.27) and corrects ONLY this client's
-    balance/equity to match. Every other client's data is completely
-    untouched — this endpoint never queries or writes any row belonging
-    to a different user_id.
-
-    Body: { "apply": false }  (default) — dry run, shows what would change
-          { "apply": true }             — commits the correction
-    """
     d     = request.json or {}
     apply = bool(d.get("apply", False))
 
@@ -2000,7 +1735,6 @@ def admin_correct_client_profit(uid):
     )
     deposits = cur.fetchone()["s"]
 
-    # CHANGE v5.27: profit basis is GROSS TOTAL DEPOSITS ONLY.
     total_deposit = deposits
 
     cur.execute(
@@ -2090,26 +1824,6 @@ def admin_correct_client_profit(uid):
 @app.route("/api/admin/migrate/flat-profit", methods=["POST"])
 @admin_required
 def admin_migrate_flat_profit():
-    """
-    ⚠️ DANGEROUS — BULK, ALL-CLIENTS, WHOLE-HISTORY REWRITE. ⚠️
-    Prefer POST /api/admin/client/<uid>/correct-profit for routine fixes —
-    it's scoped to one client and can never touch anyone else's data.
-
-    Recomputes EVERY client's ENTIRE historical daily_trade_log under the
-    CURRENT profit formula, as if that formula had always been in effect.
-    Because this platform's formula has changed multiple times, a client's
-    early days were very likely credited under a DIFFERENT, legitimate
-    formula at the time — this endpoint has no awareness of that and will
-    overwrite those rows too, not just the ones that were actually wrong.
-
-    Kept only for reference / rare full-platform resets. For "this one
-    client's balance looks wrong," use the scoped single-client endpoint
-    instead.
-
-    Dry run by default (shows what WOULD change); pass {"apply": true} to
-    actually correct balances and daily_trade_log rows, and notify each
-    affected client in-platform.
-    """
     d     = request.json or {}
     apply = bool(d.get("apply", False))
 
@@ -2135,8 +1849,6 @@ def admin_migrate_flat_profit():
         )
         deposits = cur.fetchone()["s"]
 
-        # CHANGE v5.27: profit basis is GROSS TOTAL DEPOSITS ONLY —
-        # withdrawals no longer reduce it.
         total_deposit = deposits
 
         cur.execute(
@@ -2155,8 +1867,6 @@ def admin_migrate_flat_profit():
         if total_deposit < MIN_BALANCE or days_traded == 0:
             flat_daily = 0.0
         else:
-            # Only whole $100 units of total deposits count (matches the
-            # live formula's floor behavior).
             flat_daily = round(math.floor(total_deposit / PROFIT_BASIS_USD) * DAILY_PROFIT_PER_100, 2)
 
         correct_total_profit = round(flat_daily * days_traded, 2)
@@ -2247,7 +1957,6 @@ def admin_referrals():
     cur.close(); conn.close()
     return ok([dict(r) for r in refs])
 
-# ── ADMIN NOTIFICATIONS (v5.12) ───────────────────────────────────────────────
 @app.route("/api/admin/notifications/send", methods=["POST"])
 @admin_required
 def admin_send_notification():
