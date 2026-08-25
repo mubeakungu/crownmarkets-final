@@ -1,12 +1,12 @@
 """
-Crown Markets v5.27 - $4.5 PROFIT PER $100 OF TOTAL DEPOSITS (4.5% daily)
+Crown Markets v5.27 - $3.5 PROFIT PER $200 OF TOTAL DEPOSITS (3.5% daily)
 - Scheduler starts at module level (works with gunicorn on Render)
 - One controlled trade per client per day
-- Trade profit scales: $4.5 per $100 of balance
+- Trade profit scales: $3.5 per $100 of balance
 - Realistic trade using real Binance prices
 - Referral system: 16% commission
 - Manual wallet for USDT deposits
-- Min deposit: $100
+- Min deposit: $200
 - Withdrawal deducted only on admin approval
 - Database: PostgreSQL (psycopg2)
 """
