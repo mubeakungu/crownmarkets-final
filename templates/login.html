@@ -74,7 +74,6 @@
       border-color: rgba(212, 175, 55, 0.32);
     }
 
-    /* Logo Section */
     .logo-section {
       text-align: center;
       margin-bottom: 32px;
@@ -128,7 +127,6 @@
       margin-bottom: 28px;
     }
 
-    /* Alerts */
     .alert {
       padding: 12px 14px;
       border-radius: 8px;
@@ -152,7 +150,6 @@
       color: var(--accent-red);
     }
 
-    /* Form Groups */
     .form-group {
       margin-bottom: 18px;
     }
@@ -248,7 +245,6 @@
       text-decoration: underline;
     }
 
-    /* Button */
     .btn {
       width: 100%;
       padding: 14px 20px;
@@ -276,10 +272,6 @@
       transform: translateY(-1px);
     }
 
-    .btn:active:not(:disabled) {
-      transform: translateY(0px);
-    }
-
     .btn:disabled {
       opacity: 0.65;
       cursor: not-allowed;
@@ -300,7 +292,6 @@
       to { transform: rotate(360deg); }
     }
 
-    /* Links */
     .signup-link {
       text-align: center;
       margin-top: 24px;
@@ -338,7 +329,6 @@
       text-decoration: underline;
     }
 
-    /* Responsive */
     @media (max-width: 480px) {
       .card {
         padding: 36px 24px 32px;
@@ -354,10 +344,7 @@
       }
     }
 
-    /* Accessibility */
-    a:focus-visible,
-    button:focus-visible,
-    input:focus-visible {
+    a:focus-visible, button:focus-visible, input:focus-visible {
       outline: 2px solid var(--primary-gold);
       outline-offset: 2px;
     }
@@ -371,7 +358,6 @@
 <body>
   <div class="container">
     <div class="card">
-      <!-- Logo Section -->
       <div class="logo-section">
         <img src="/static/logo.png" alt="Crown Markets" class="logo-image">
         <div class="brand-name">Crown Markets</div>
@@ -381,22 +367,36 @@
       <div class="subtitle">Welcome back</div>
       <div class="subtitle-sub">Sign in to your trading account</div>
 
-      <!-- Alerts -->
       <div class="alert error" id="err" role="alert"></div>
 
-      <!-- Form with proper submission handling -->
-      <form id="loginForm" novalidate>
+      <form id="loginForm" method="POST" novalidate>
         <div class="form-group">
           <label for="email">Email address</label>
-          <input type="email" id="email" name="email" placeholder="john@example.com" autocomplete="email" required autofocus>
+          <input 
+            type="email" 
+            id="email" 
+            name="email" 
+            placeholder="john@example.com" 
+            autocomplete="email" 
+            required 
+            autofocus>
         </div>
 
         <div class="form-group">
-          <label for="pass">Password</label>
+          <label for="password">Password</label>
           <div class="field-wrap">
-            <input type="password" id="pass" name="password" placeholder="••••••••" autocomplete="current-password" required>
-            <button type="button" class="toggle-visibility" data-target="pass" aria-label="Show password">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>
+            <input 
+              type="password" 
+              id="password" 
+              name="password" 
+              placeholder="••••••••" 
+              autocomplete="current-password" 
+              required>
+            <button type="button" class="toggle-visibility" data-target="password" aria-label="Show password">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/>
+                <circle cx="12" cy="12" r="3"/>
+              </svg>
             </button>
           </div>
           <a href="/forgot-password" class="forgot-link">Forgot password?</a>
@@ -417,87 +417,125 @@
   </div>
 
   <script>
-    (function () {
-      const form = document.getElementById('loginForm');
-      const errEl = document.getElementById('err');
-      const btnEl = document.getElementById('loginBtn');
-      const btnLabel = document.getElementById('btnLabel');
-      const btnSpinner = document.getElementById('btnSpinner');
+    // Debug: Log when script loads
+    console.log('Login script initialized');
 
-      const fields = {
-        email: document.getElementById('email'),
-        pass: document.getElementById('pass')
-      };
+    // Get DOM elements
+    const form = document.getElementById('loginForm');
+    const emailInput = document.getElementById('email');
+    const passwordInput = document.getElementById('password');
+    const errorEl = document.getElementById('err');
+    const loginBtn = document.getElementById('loginBtn');
+    const btnLabel = document.getElementById('btnLabel');
+    const btnSpinner = document.getElementById('btnSpinner');
 
-      // Password visibility toggle
-      document.querySelectorAll('.toggle-visibility').forEach(btn => {
-        btn.addEventListener('click', () => {
-          const target = document.getElementById(btn.dataset.target);
-          const isHidden = target.type === 'password';
-          target.type = isHidden ? 'text' : 'password';
-          btn.setAttribute('aria-label', isHidden ? 'Hide password' : 'Show password');
-        });
-      });
+    // Debug: Verify all elements exist
+    console.log('Form element:', form);
+    console.log('Email input:', emailInput);
+    console.log('Password input:', passwordInput);
 
-      // Clear invalid state on input
-      Object.values(fields).forEach(f => {
-        f.addEventListener('input', () => f.classList.remove('field-invalid'));
-      });
+    if (!form) {
+      console.error('ERROR: Login form not found!');
+      errorEl.textContent = '✗ Form initialization error. Please refresh the page.';
+      errorEl.style.display = 'flex';
+    }
 
-      function showError(message, invalidFields = []) {
-        errEl.textContent = '✗ ' + message;
-        errEl.style.display = 'flex';
-        invalidFields.forEach(f => fields[f]?.classList.add('field-invalid'));
-      }
-
-      function clearAlerts() {
-        errEl.style.display = 'none';
-      }
-
-      function setLoading(isLoading) {
-        btnEl.disabled = isLoading;
-        btnLabel.textContent = isLoading ? 'Signing in…' : 'Sign in';
-        btnSpinner.style.display = isLoading ? 'inline-block' : 'none';
-      }
-
-      // Form submission handler
-      form.addEventListener('submit', async (e) => {
+    // Password visibility toggle
+    document.querySelectorAll('.toggle-visibility').forEach(button => {
+      button.addEventListener('click', function(e) {
         e.preventDefault();
-        clearAlerts();
-
-        const email = fields.email.value.trim();
-        const pass = fields.pass.value;
-
-        if (!email || !pass) {
-          const missing = Object.keys(fields).filter(k => !fields[k].value.trim());
-          showError('Please enter email and password', missing);
-          return;
+        const targetId = this.getAttribute('data-target');
+        const target = document.getElementById(targetId);
+        if (target) {
+          const isPassword = target.type === 'password';
+          target.type = isPassword ? 'text' : 'password';
+          this.setAttribute('aria-label', isPassword ? 'Hide password' : 'Show password');
         }
+      });
+    });
 
-        setLoading(true);
+    // Clear error on input
+    emailInput.addEventListener('input', () => {
+      emailInput.classList.remove('field-invalid');
+      errorEl.style.display = 'none';
+    });
 
-        try {
-          const r = await fetch('/api/auth/login', {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email, password: pass, admin: false })
-          });
+    passwordInput.addEventListener('input', () => {
+      passwordInput.classList.remove('field-invalid');
+      errorEl.style.display = 'none';
+    });
 
-          const d = await r.json();
+    function showError(message) {
+      console.error('Error:', message);
+      errorEl.textContent = '✗ ' + message;
+      errorEl.style.display = 'flex';
+    }
 
-          if (r.ok && d.success) {
-            window.location = d.data.redirect;
-          } else {
-            showError(d.error || 'Login failed. Please try again.');
-            setLoading(false);
-          }
-        } catch (e) {
-          showError('Connection error. Please check your network and try again.');
+    function setLoading(isLoading) {
+      loginBtn.disabled = isLoading;
+      btnLabel.textContent = isLoading ? 'Signing in…' : 'Sign in';
+      btnSpinner.style.display = isLoading ? 'inline-block' : 'none';
+    }
+
+    // MAIN FORM SUBMISSION HANDLER
+    form.addEventListener('submit', async function(e) {
+      console.log('Form submitted');
+      e.preventDefault(); // CRITICAL: Stop form from doing GET request
+
+      const email = emailInput.value.trim();
+      const password = passwordInput.value;
+
+      console.log('Attempting login with email:', email);
+
+      // Validate
+      if (!email || !password) {
+        showError('Please enter email and password');
+        return;
+      }
+
+      setLoading(true);
+
+      try {
+        console.log('Sending POST request to /api/auth/login');
+        
+        const response = await fetch('/api/auth/login', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            email: email,
+            password: password,
+            admin: false
+          })
+        });
+
+        console.log('Response status:', response.status);
+        const data = await response.json();
+        console.log('Response data:', data);
+
+        if (response.ok && data.success) {
+          console.log('Login successful, redirecting to:', data.data.redirect);
+          window.location.href = data.data.redirect;
+        } else {
+          showError(data.error || 'Login failed. Please try again.');
           setLoading(false);
         }
-      });
-    })();
+      } catch (error) {
+        console.error('Fetch error:', error);
+        showError('Connection error: ' + error.message);
+        setLoading(false);
+      }
+    });
+
+    // Allow Enter key to submit
+    form.addEventListener('keypress', function(e) {
+      if (e.key === 'Enter' && e.target !== loginBtn) {
+        console.log('Enter key pressed');
+        form.dispatchEvent(new Event('submit'));
+      }
+    });
   </script>
 </body>
 </html>
