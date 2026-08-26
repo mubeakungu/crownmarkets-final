@@ -36,7 +36,7 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      padding: 32px 20px;
+      padding: 24px 16px;
       position: relative;
       overflow-x: hidden;
     }
@@ -61,10 +61,10 @@
     .card {
       background: linear-gradient(180deg, rgba(26, 31, 58, 0.96), rgba(20, 24, 46, 0.92));
       border: 1px solid var(--border-subtle);
-      border-radius: 18px;
-      padding: 48px 44px 40px;
+      border-radius: 16px;
+      padding: 32px 32px 28px;
       width: 100%;
-      max-width: 460px;
+      max-width: 400px;
       backdrop-filter: blur(12px);
       box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(212, 175, 55, 0.08);
       transition: border-color 0.3s ease, box-shadow 0.3s ease;
@@ -77,72 +77,72 @@
     /* Logo Section */
     .logo-section {
       text-align: center;
-      margin-bottom: 32px;
-      padding-bottom: 28px;
+      margin-bottom: 20px;
+      padding-bottom: 16px;
       border-bottom: 1px solid var(--border-subtle);
     }
 
     .logo-image {
-      max-width: 88px;
+      max-width: 64px;
       height: auto;
-      margin-bottom: 18px;
+      margin-bottom: 10px;
       filter: drop-shadow(0 0 15px rgba(212, 175, 55, 0.3));
       animation: float 3s ease-in-out infinite;
     }
 
     @keyframes float {
       0%, 100% { transform: translateY(0px); }
-      50% { transform: translateY(-8px); }
+      50% { transform: translateY(-6px); }
     }
 
     .brand-name {
-      font-size: 28px;
+      font-size: 24px;
       font-weight: 700;
       background: linear-gradient(135deg, var(--primary-gold), var(--gold-bright));
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
       background-clip: text;
       letter-spacing: -0.3px;
-      margin-bottom: 6px;
+      margin-bottom: 4px;
     }
 
     .brand-tagline {
-      font-size: 11px;
+      font-size: 10px;
       color: var(--text-muted);
-      letter-spacing: 2.5px;
+      letter-spacing: 2px;
       text-transform: uppercase;
     }
 
     .subtitle {
       text-align: center;
-      font-size: 15px;
+      font-size: 14px;
       color: var(--text-light);
       font-weight: 600;
-      margin-bottom: 4px;
+      margin-bottom: 2px;
     }
 
     .subtitle-sub {
       text-align: center;
-      font-size: 12.5px;
+      font-size: 12px;
       color: var(--text-muted);
-      margin-bottom: 28px;
+      margin-bottom: 18px;
     }
 
     /* Alerts */
     .alert {
-      padding: 12px 14px;
+      padding: 10px 12px;
       border-radius: 8px;
-      margin-bottom: 18px;
+      margin-bottom: 14px;
       display: none;
       align-items: center;
       gap: 8px;
-      font-size: 13px;
+      font-size: 12px;
       line-height: 1.4;
       animation: slideIn 0.25s ease;
     }
 
     @keyframes slideIn {
-      from { opacity: 0; transform: translateY(-8px); }
+      from { opacity: 0; transform: translateY(-6px); }
       to { opacity: 1; transform: translateY(0); }
     }
 
@@ -160,22 +160,27 @@
 
     /* Form Groups */
     .form-group {
-      margin-bottom: 18px;
+      margin-bottom: 14px;
     }
 
     .form-row {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 14px;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+
+    .form-row .form-group {
+      margin-bottom: 0;
     }
 
     label {
       display: block;
-      margin-bottom: 7px;
-      font-size: 11px;
+      margin-bottom: 5px;
+      font-size: 10px;
       color: var(--text-muted);
       text-transform: uppercase;
-      letter-spacing: 1px;
+      letter-spacing: 0.8px;
       font-weight: 600;
     }
 
@@ -185,22 +190,22 @@
 
     input {
       width: 100%;
-      padding: 13px 14px;
+      padding: 11px 12px;
       border: 1px solid var(--border-subtle);
       background: var(--field-bg);
       color: var(--text-light);
-      border-radius: 9px;
-      font-size: 14px;
+      border-radius: 8px;
+      font-size: 13px;
       transition: border-color 0.25s ease, box-shadow 0.25s ease, background 0.25s ease;
       font-family: inherit;
     }
 
     .field-wrap input {
-      padding-right: 44px;
+      padding-right: 40px;
     }
 
     input::placeholder {
-      color: rgba(143, 147, 171, 0.55);
+      color: rgba(143, 147, 171, 0.5);
     }
 
     input:focus {
@@ -223,7 +228,7 @@
       border: none;
       cursor: pointer;
       color: var(--text-muted);
-      padding: 8px;
+      padding: 6px;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -236,32 +241,32 @@
     }
 
     .toggle-visibility svg {
-      width: 18px;
-      height: 18px;
+      width: 16px;
+      height: 16px;
     }
 
     .hint {
-      font-size: 11px;
+      font-size: 10px;
       color: var(--text-muted);
-      margin-top: 6px;
+      margin-top: 4px;
     }
 
     /* Button */
     .btn {
       width: 100%;
-      padding: 14px 20px;
+      padding: 12px 18px;
       background: linear-gradient(135deg, var(--primary-gold), var(--gold-bright));
       color: var(--dark-bg);
       border: none;
-      border-radius: 9px;
+      border-radius: 8px;
       font-weight: 700;
-      font-size: 13px;
+      font-size: 12px;
       cursor: pointer;
       text-transform: uppercase;
-      letter-spacing: 1.5px;
+      letter-spacing: 1.2px;
       transition: all 0.25s ease;
       box-shadow: 0 8px 24px rgba(212, 175, 55, 0.28);
-      margin-top: 8px;
+      margin-top: 6px;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -285,8 +290,8 @@
     }
 
     .spinner {
-      width: 14px;
-      height: 14px;
+      width: 12px;
+      height: 12px;
       border: 2px solid rgba(10, 14, 39, 0.35);
       border-top-color: var(--dark-bg);
       border-radius: 50%;
@@ -301,8 +306,8 @@
     /* Links */
     .login-link {
       text-align: center;
-      margin-top: 24px;
-      font-size: 13px;
+      margin-top: 16px;
+      font-size: 12px;
       color: var(--text-muted);
     }
 
@@ -320,10 +325,10 @@
 
     /* Terms */
     .terms {
-      font-size: 11px;
+      font-size: 10px;
       color: var(--text-muted);
-      line-height: 1.6;
-      margin-top: 22px;
+      line-height: 1.5;
+      margin-top: 14px;
       text-align: center;
     }
 
@@ -338,23 +343,33 @@
     }
 
     /* Responsive */
-    @media (max-width: 560px) {
+    @media (max-width: 480px) {
+      body {
+        padding: 20px 12px;
+      }
+
       .card {
-        padding: 36px 24px 32px;
-        border-radius: 14px;
+        padding: 24px 20px 20px;
+        border-radius: 12px;
+        max-width: 100%;
       }
 
       .brand-name {
-        font-size: 24px;
+        font-size: 20px;
       }
 
       .form-row {
         grid-template-columns: 1fr;
-        gap: 18px;
+        gap: 14px;
+        margin-bottom: 14px;
       }
 
       .logo-image {
-        max-width: 72px;
+        max-width: 56px;
+      }
+
+      .subtitle {
+        font-size: 13px;
       }
     }
 
@@ -382,29 +397,31 @@
         <div class="brand-tagline">Trade • Invest • Grow</div>
       </div>
 
-      <div class="subtitle">Create your trading account</div>
-      <div class="subtitle-sub">Takes less than a minute</div>
+      <div class="subtitle">Create your account</div>
+      <div class="subtitle-sub">Get started in seconds</div>
 
       <!-- Alerts -->
       <div class="alert error" id="err" role="alert"></div>
       <div class="alert success" id="succ" role="status"></div>
 
       <form id="registerForm" novalidate>
-        <!-- Form -->
+        <!-- Full Name -->
         <div class="form-group">
           <label for="name">Full name</label>
           <input type="text" id="name" name="name" placeholder="John Doe" autocomplete="name" required>
         </div>
 
+        <!-- Email -->
         <div class="form-group">
           <label for="email">Email address</label>
           <input type="email" id="email" name="email" placeholder="john@example.com" autocomplete="email" required>
         </div>
 
+        <!-- Phone & PIN Row -->
         <div class="form-row">
           <div class="form-group">
-            <label for="phone">Phone number</label>
-            <input type="tel" id="phone" name="phone" placeholder="+254 712 345 678" autocomplete="tel" required>
+            <label for="phone">Phone</label>
+            <input type="tel" id="phone" name="phone" placeholder="+254 712 345678" autocomplete="tel" required>
           </div>
           <div class="form-group">
             <label for="pin">PIN (6 digits)</label>
@@ -412,6 +429,7 @@
           </div>
         </div>
 
+        <!-- Password -->
         <div class="form-group">
           <label for="pass">Password</label>
           <div class="field-wrap">
@@ -422,6 +440,7 @@
           </div>
         </div>
 
+        <!-- Confirm Password -->
         <div class="form-group">
           <label for="pass2">Confirm password</label>
           <div class="field-wrap">
@@ -441,7 +460,7 @@
 
       <!-- Terms -->
       <div class="terms">
-        By creating an account, you agree to our <a href="/terms">Terms of Service</a> and <a href="/privacy">Privacy Policy</a>.
+        By creating an account, you agree to our <a href="/terms">Terms</a> and <a href="/privacy">Privacy Policy</a>.
       </div>
 
       <!-- Login Link -->
