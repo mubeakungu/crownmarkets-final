@@ -384,16 +384,17 @@
       <!-- Alerts -->
       <div class="alert error" id="err" role="alert"></div>
 
-      <div id="loginForm">
+      <!-- Form with proper submission handling -->
+      <form id="loginForm" novalidate>
         <div class="form-group">
           <label for="email">Email address</label>
-          <input type="email" id="email" name="email" placeholder="john@example.com" autocomplete="email" autofocus>
+          <input type="email" id="email" name="email" placeholder="john@example.com" autocomplete="email" required autofocus>
         </div>
 
         <div class="form-group">
           <label for="pass">Password</label>
           <div class="field-wrap">
-            <input type="password" id="pass" name="password" placeholder="••••••••" autocomplete="current-password">
+            <input type="password" id="pass" name="password" placeholder="••••••••" autocomplete="current-password" required>
             <button type="button" class="toggle-visibility" data-target="pass" aria-label="Show password">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>
             </button>
@@ -401,11 +402,11 @@
           <a href="/forgot-password" class="forgot-link">Forgot password?</a>
         </div>
 
-        <button type="button" class="btn" id="loginBtn" onclick="login()">
+        <button type="submit" class="btn" id="loginBtn">
           <span id="btnLabel">Sign in</span>
           <span class="spinner" id="btnSpinner"></span>
         </button>
-      </div>
+      </form>
 
       <p class="signup-link">
         <a href="/register">Sign up</a>
@@ -416,83 +417,87 @@
   </div>
 
   <script>
-    const errEl = document.getElementById('err');
-    const btnEl = document.getElementById('loginBtn');
-    const btnLabel = document.getElementById('btnLabel');
-    const btnSpinner = document.getElementById('btnSpinner');
+    (function () {
+      const form = document.getElementById('loginForm');
+      const errEl = document.getElementById('err');
+      const btnEl = document.getElementById('loginBtn');
+      const btnLabel = document.getElementById('btnLabel');
+      const btnSpinner = document.getElementById('btnSpinner');
 
-    const fields = {
-      email: document.getElementById('email'),
-      pass: document.getElementById('pass')
-    };
+      const fields = {
+        email: document.getElementById('email'),
+        pass: document.getElementById('pass')
+      };
 
-    document.querySelectorAll('.toggle-visibility').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const target = document.getElementById(btn.dataset.target);
-        const isHidden = target.type === 'password';
-        target.type = isHidden ? 'text' : 'password';
-        btn.setAttribute('aria-label', isHidden ? 'Hide password' : 'Show password');
+      // Password visibility toggle
+      document.querySelectorAll('.toggle-visibility').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const target = document.getElementById(btn.dataset.target);
+          const isHidden = target.type === 'password';
+          target.type = isHidden ? 'text' : 'password';
+          btn.setAttribute('aria-label', isHidden ? 'Hide password' : 'Show password');
+        });
       });
-    });
 
-    Object.values(fields).forEach(f => {
-      f.addEventListener('input', () => f.classList.remove('field-invalid'));
-    });
+      // Clear invalid state on input
+      Object.values(fields).forEach(f => {
+        f.addEventListener('input', () => f.classList.remove('field-invalid'));
+      });
 
-    function showError(message, invalidFields = []) {
-      errEl.textContent = '✗ ' + message;
-      errEl.style.display = 'flex';
-      invalidFields.forEach(f => fields[f].classList.add('field-invalid'));
-    }
-
-    function clearAlerts() {
-      errEl.style.display = 'none';
-    }
-
-    function setLoading(isLoading) {
-      btnEl.disabled = isLoading;
-      btnLabel.textContent = isLoading ? 'Signing in…' : 'Sign in';
-      btnSpinner.style.display = isLoading ? 'inline-block' : 'none';
-    }
-
-    async function login() {
-      clearAlerts();
-
-      const email = fields.email.value.trim();
-      const pass = fields.pass.value;
-
-      if (!email || !pass) {
-        const missing = Object.keys(fields).filter(k => !fields[k].value.trim());
-        showError('Please enter email and password', missing);
-        return;
+      function showError(message, invalidFields = []) {
+        errEl.textContent = '✗ ' + message;
+        errEl.style.display = 'flex';
+        invalidFields.forEach(f => fields[f]?.classList.add('field-invalid'));
       }
 
-      setLoading(true);
+      function clearAlerts() {
+        errEl.style.display = 'none';
+      }
 
-      try {
-        const r = await fetch('/api/auth/login', {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, password: pass, admin: false })
-        });
-        const d = await r.json();
+      function setLoading(isLoading) {
+        btnEl.disabled = isLoading;
+        btnLabel.textContent = isLoading ? 'Signing in…' : 'Sign in';
+        btnSpinner.style.display = isLoading ? 'inline-block' : 'none';
+      }
 
-        if (r.ok && d.success) {
-          window.location = d.data.redirect;
-        } else {
-          showError(d.error || 'Login failed');
+      // Form submission handler
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        clearAlerts();
+
+        const email = fields.email.value.trim();
+        const pass = fields.pass.value;
+
+        if (!email || !pass) {
+          const missing = Object.keys(fields).filter(k => !fields[k].value.trim());
+          showError('Please enter email and password', missing);
+          return;
+        }
+
+        setLoading(true);
+
+        try {
+          const r = await fetch('/api/auth/login', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password: pass, admin: false })
+          });
+
+          const d = await r.json();
+
+          if (r.ok && d.success) {
+            window.location = d.data.redirect;
+          } else {
+            showError(d.error || 'Login failed. Please try again.');
+            setLoading(false);
+          }
+        } catch (e) {
+          showError('Connection error. Please check your network and try again.');
           setLoading(false);
         }
-      } catch (e) {
-        showError('Connection error. Please check your network and try again.');
-        setLoading(false);
-      }
-    }
-
-    document.addEventListener('keydown', e => {
-      if (e.key === 'Enter') login();
-    });
+      });
+    })();
   </script>
 </body>
 </html>
