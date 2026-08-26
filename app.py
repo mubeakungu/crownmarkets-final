@@ -563,10 +563,16 @@ def favicon():
 
 # ── PAGE ROUTES ───────────────────────────────────────────────────────────────
 @app.route("/")
-def index(): return render_template("landing.html")
+def index(): 
+    return render_template("landing.html")
+
+@app.route("/login")
+def login_page(): 
+    return render_template("login.html")
 
 @app.route("/register")
-def register_page(): return render_template("register.html")
+def register_page(): 
+    return render_template("register.html")
 
 @app.route("/forgot-password")
 def forgot_password_page():
@@ -579,7 +585,8 @@ def dashboard():
     return render_template("dashboard.html")
 
 @app.route("/admin")
-def admin_index(): return render_template("admin_login.html")
+def admin_index(): 
+    return render_template("admin_login.html")
 
 @app.route("/admin/dashboard")
 def admin_dashboard():
