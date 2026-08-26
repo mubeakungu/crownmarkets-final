@@ -396,16 +396,26 @@ let currentSymbol = 'BTCUSDT';
 let priceHistory = { BTCUSDT: [], ETHUSDT: [], BNBUSDT: [] };
 let priceFetchFailCount = 0;
 
-// PAGE NAVIGATION
+// PAGE NAVIGATION - FIXED
 function openPage(pageName, el) {
+  const titles = { 
+    dashboard: 'Dashboard', 
+    trading: 'Trading', 
+    wallets: 'Wallets & Deposits', 
+    transactions: 'Transactions', 
+    referral: 'Referral Program', 
+    settings: 'Settings' 
+  };
+  
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   
-  document.getElementById('pageHeader').textContent = titles[pageName];
-  el.classList.add('active');
+  const pageEl = document.getElementById(pageName);
+  const headerEl = document.getElementById('pageHeader');
   
-  const titles = { dashboard: 'Dashboard', trading: 'Trading', wallets: 'Wallets & Deposits', transactions: 'Transactions', referral: 'Referral Program', settings: 'Settings' };
-  document.querySelector('.navbar .navbar').textContent = titles[pageName];
+  if (pageEl) pageEl.classList.add('active');
+  if (el) el.classList.add('active');
+  if (headerEl) headerEl.textContent = titles[pageName];
   
   if (pageName === 'trading') loadTrades();
   if (pageName === 'transactions') loadTransactions();
