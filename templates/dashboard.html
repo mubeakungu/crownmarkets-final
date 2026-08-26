@@ -138,7 +138,10 @@
   </div>
   
   <div class="sidebar-footer">
-    <button class="bell-btn" onclick="toggleNotifPanel()" style="flex:0; padding:8px;">🔔</button>
+    <button class="bell-btn" onclick="toggleNotifPanel()" style="flex:0; padding:8px; position:relative;">
+      🔔
+      <span class="bell-dot"></span>
+    </button>
     <button onclick="logout()">Logout</button>
   </div>
 </div>
@@ -471,7 +474,10 @@ async function loadSummary() {
 async function loadNotifCount() {
   const d = await api('/api/client/notifications');
   if (!d.success) return;
-  document.querySelector('.bell-btn .bell-dot').classList.toggle('show', d.data.unread_count > 0);
+  const dotEl = document.querySelector('.bell-btn .bell-dot');
+  if (dotEl) {
+    dotEl.classList.toggle('show', d.data.unread_count > 0);
+  }
 }
 
 async function toggleNotifPanel() {
