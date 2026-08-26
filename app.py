@@ -331,7 +331,7 @@ def run_daily_trades():
 
     try:
         today = _today()
-        log.info(f"=== Daily trade run: {today} — ${DAILY_PROFIT_PER_100} profit per ${PROFIT_BASIS_USD:.0f} total deposited ===")
+        log.info(f"=== Daily trade run: {today} — ${DAILY_PROFIT_PER_200} profit per ${PROFIT_BASIS_USD:.0f} total deposited ===")
 
         price       = get_live_price(TRADE_SYMBOL)
         pct_gain    = random.uniform(0.003, 0.005)
@@ -342,7 +342,7 @@ def run_daily_trades():
             log.error("Price diff is zero — aborting.")
             return
 
-        log.info(f"  Entry: ${price:,.2f} | Close: ${close_price:,.2f} | Rate: ${DAILY_PROFIT_PER_100}/${PROFIT_BASIS_USD:.0f}")
+        log.info(f"  Entry: ${price:,.2f} | Close: ${close_price:,.2f} | Rate: ${DAILY_PROFIT_PER_200}/${PROFIT_BASIS_USD:.0f}")
 
         conn = get_db()
         cur  = conn.cursor()
@@ -1317,7 +1317,7 @@ def admin_stats():
         "ref_commissions":     ref_paid,
         "total_profit_paid":   profit_paid,
         "trades_today":        trades_today,
-        "daily_profit_rate":   DAILY_PROFIT_PER_100,
+        "daily_profit_rate":   DAILY_PROFIT_PER_200,
         "trade_symbol":        TRADE_SYMBOL,
         "scheduler_running":   _scheduler_started,
     })
@@ -1618,7 +1618,7 @@ def admin_run_single_client_trade():
         cur.close(); conn.close()
         return err("Price diff was zero — try again")
 
-    client_profit   = round(math.floor(c["total_deposit"] / PROFIT_BASIS_USD) * DAILY_PROFIT_PER_100, 2)
+    client_profit   = round(math.floor(c["total_deposit"] / PROFIT_BASIS_USD) * DAILY_PROFIT_PER_200, 2)
     client_quantity = round(client_profit / price_diff, 6)
 
     now              = datetime.datetime.utcnow()
@@ -1867,7 +1867,7 @@ def admin_migrate_flat_profit():
         if total_deposit < MIN_BALANCE or days_traded == 0:
             flat_daily = 0.0
         else:
-            flat_daily = round(math.floor(total_deposit / PROFIT_BASIS_USD) * DAILY_PROFIT_PER_100, 2)
+            flat_daily = round(math.floor(total_deposit / PROFIT_BASIS_USD) * DAILY_PROFIT_PER_200, 2)
 
         correct_total_profit = round(flat_daily * days_traded, 2)
         delta = round(correct_total_profit - old_total_profit, 2)
@@ -2019,7 +2019,7 @@ start_scheduler()
 
 if __name__ == "__main__":
     print("\n" + "="*60)
-    print("   Crown Markets v5.27 — $4.5 PROFIT PER $100 OF TOTAL DEPOSITS")
+    print("   Crown Markets v5.27 — $3.5 PROFIT PER $200 OF TOTAL DEPOSITS")
     print("="*60)
     print(f"   URL    : http://127.0.0.1:8080")
     print(f"   Client : john@test.com  / demo1234")
