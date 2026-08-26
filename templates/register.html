@@ -1,205 +1,360 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Crown Markets - Create Account</title>
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --primary-gold: #d4af37;
+      --dark-bg: #0a0e27;
+      --card-bg: #1a1f3a;
+      --accent-green: #00ff41;
+      --accent-red: #ff3333;
+      --text-light: #e8e8e8;
+      --text-muted: #a8a8a8;
+    }
+
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-      background: linear-gradient(135deg, #0a1428 0%, #1a2a4a 100%);
-      color: #fff;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, var(--dark-bg) 0%, var(--card-bg) 100%);
+      color: var(--text-light);
       min-height: 100vh;
       display: flex;
       align-items: center;
       justify-content: center;
       padding: 20px;
+      position: relative;
+      overflow: hidden;
     }
+
+    /* Animated background elements */
+    body::before {
+      content: '';
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: radial-gradient(ellipse at center, rgba(212, 175, 55, 0.05) 0%, transparent 70%);
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    .container {
+      position: relative;
+      z-index: 2;
+    }
+
     .card {
-      background: rgba(20, 30, 48, 0.8);
-      border: 1px solid rgba(74, 158, 255, 0.2);
-      border-radius: 12px;
+      background: linear-gradient(135deg, rgba(26, 31, 58, 0.95), rgba(26, 31, 58, 0.85));
+      border: 2px solid rgba(212, 175, 55, 0.2);
+      border-radius: 15px;
       padding: 50px 40px;
       width: 100%;
-      max-width: 450px;
+      max-width: 500px;
       backdrop-filter: blur(10px);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(212, 175, 55, 0.1);
+      transition: all 0.3s ease;
     }
-    .logo {
+
+    .card:hover {
+      border-color: rgba(212, 175, 55, 0.4);
+      box-shadow: 0 12px 40px rgba(212, 175, 55, 0.15), inset 0 1px 0 rgba(212, 175, 55, 0.1);
+    }
+
+    /* Logo Section */
+    .logo-section {
       text-align: center;
       margin-bottom: 40px;
+      padding-bottom: 30px;
+      border-bottom: 1px solid rgba(212, 175, 55, 0.15);
     }
-    .logo-icon {
-      font-size: 48px;
-      margin-bottom: 12px;
+
+    .logo-image {
+      max-width: 120px;
+      height: auto;
+      margin-bottom: 20px;
+      filter: drop-shadow(0 0 15px rgba(212, 175, 55, 0.3));
+      animation: float 3s ease-in-out infinite;
     }
-    .logo-text {
-      font-size: 28px;
+
+    @keyframes float {
+      0%, 100% { transform: translateY(0px); }
+      50% { transform: translateY(-10px); }
+    }
+
+    .brand-name {
+      font-size: 32px;
       font-weight: 700;
-      color: #fff;
+      background: linear-gradient(135deg, var(--primary-gold), #f0d96e);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
       letter-spacing: -0.5px;
+      margin-bottom: 8px;
     }
-    .logo-text span {
-      color: #4a9eff;
+
+    .brand-tagline {
+      font-size: 12px;
+      color: var(--text-muted);
+      letter-spacing: 2px;
+      text-transform: uppercase;
     }
+
     .subtitle {
       text-align: center;
-      font-size: 13px;
-      color: #aaa;
+      font-size: 14px;
+      color: var(--text-muted);
       margin-bottom: 30px;
+      font-weight: 500;
     }
+
+    /* Alerts */
+    .alert {
+      padding: 14px 16px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      display: none;
+      font-size: 13px;
+      animation: slideIn 0.3s ease;
+    }
+
+    @keyframes slideIn {
+      from {
+        opacity: 0;
+        transform: translateY(-10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .error {
+      background: rgba(255, 51, 51, 0.15);
+      border: 1px solid rgba(255, 51, 51, 0.3);
+      color: #ff6b6b;
+    }
+
+    .success {
+      background: rgba(0, 255, 65, 0.15);
+      border: 1px solid rgba(0, 255, 65, 0.3);
+      color: #00ff41;
+    }
+
+    /* Form Groups */
     .form-group {
       margin-bottom: 20px;
     }
-    label {
-      display: block;
-      margin-bottom: 8px;
-      font-size: 13px;
-      color: #aaa;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-    input {
-      width: 100%;
-      padding: 12px 14px;
-      border: 1px solid rgba(74, 158, 255, 0.2);
-      background: rgba(10, 20, 40, 0.6);
-      color: #fff;
-      border-radius: 6px;
-      font-size: 14px;
-      transition: all 0.3s ease;
-    }
-    input::placeholder {
-      color: #555;
-    }
-    input:focus {
-      outline: none;
-      border-color: #4a9eff;
-      background: rgba(10, 20, 40, 0.8);
-      box-shadow: 0 0 10px rgba(74, 158, 255, 0.1);
-    }
+
     .form-row {
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 15px;
     }
-    .btn {
-      width: 100%;
-      padding: 12px 20px;
-      background: linear-gradient(135deg, #4a9eff 0%, #2a7eef 100%);
-      color: #fff;
-      border: none;
-      border-radius: 6px;
-      font-weight: 600;
-      font-size: 14px;
-      cursor: pointer;
+
+    label {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 12px;
+      color: var(--text-muted);
       text-transform: uppercase;
       letter-spacing: 1px;
-      transition: all 0.3s ease;
-      box-shadow: 0 4px 15px rgba(74, 158, 255, 0.2);
-      margin-top: 10px;
+      font-weight: 600;
     }
+
+    input {
+      width: 100%;
+      padding: 12px 14px;
+      border: 1px solid rgba(212, 175, 55, 0.2);
+      background: rgba(10, 14, 39, 0.6);
+      color: var(--text-light);
+      border-radius: 8px;
+      font-size: 14px;
+      transition: all 0.3s ease;
+      font-family: inherit;
+    }
+
+    input::placeholder {
+      color: rgba(168, 168, 168, 0.5);
+    }
+
+    input:focus {
+      outline: none;
+      border-color: var(--primary-gold);
+      background: rgba(10, 14, 39, 0.8);
+      box-shadow: 0 0 15px rgba(212, 175, 55, 0.15), inset 0 0 5px rgba(212, 175, 55, 0.05);
+    }
+
+    /* Button */
+    .btn {
+      width: 100%;
+      padding: 13px 20px;
+      background: linear-gradient(135deg, var(--primary-gold), #f0d96e);
+      color: var(--dark-bg);
+      border: none;
+      border-radius: 8px;
+      font-weight: 700;
+      font-size: 13px;
+      cursor: pointer;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      transition: all 0.3s ease;
+      box-shadow: 0 6px 20px rgba(212, 175, 55, 0.3);
+      margin-top: 15px;
+    }
+
     .btn:hover {
-      background: linear-gradient(135deg, #6aafff 0%, #4a8eff 100%);
-      box-shadow: 0 6px 20px rgba(74, 158, 255, 0.3);
+      background: linear-gradient(135deg, #f0d96e, var(--primary-gold));
+      box-shadow: 0 8px 30px rgba(212, 175, 55, 0.4);
       transform: translateY(-2px);
     }
-    .error {
-      background: rgba(255, 69, 96, 0.15);
-      border: 1px solid rgba(255, 69, 96, 0.3);
-      color: #ff6b7a;
-      padding: 12px 14px;
-      border-radius: 6px;
-      margin-bottom: 20px;
-      display: none;
-      font-size: 13px;
+
+    .btn:active {
+      transform: translateY(0px);
     }
-    .success {
-      background: rgba(76, 175, 80, 0.15);
-      border: 1px solid rgba(76, 175, 80, 0.3);
-      color: #81c784;
-      padding: 12px 14px;
-      border-radius: 6px;
-      margin-bottom: 20px;
-      display: none;
-      font-size: 13px;
-    }
+
+    /* Links */
     .login-link {
       text-align: center;
-      margin-top: 20px;
+      margin-top: 25px;
       font-size: 13px;
-      color: #aaa;
+      color: var(--text-muted);
     }
+
     .login-link a {
-      color: #4a9eff;
+      color: var(--primary-gold);
+      text-decoration: none;
+      font-weight: 700;
+      transition: all 0.3s ease;
+    }
+
+    .login-link a:hover {
+      color: #f0d96e;
+      text-decoration: underline;
+    }
+
+    /* Terms */
+    .terms {
+      font-size: 11px;
+      color: var(--text-muted);
+      line-height: 1.6;
+      margin-top: 20px;
+      text-align: center;
+    }
+
+    .terms a {
+      color: var(--primary-gold);
       text-decoration: none;
       font-weight: 600;
     }
-    .login-link a:hover {
-      color: #6aafff;
+
+    .terms a:hover {
       text-decoration: underline;
     }
-    .terms {
-      font-size: 11px;
-      color: #666;
-      line-height: 1.6;
-      margin-top: 15px;
-      text-align: center;
+
+    /* Responsive */
+    @media (max-width: 600px) {
+      .card {
+        padding: 40px 25px;
+      }
+
+      .brand-name {
+        font-size: 26px;
+      }
+
+      .form-row {
+        grid-template-columns: 1fr;
+        gap: 15px;
+      }
+
+      .logo-image {
+        max-width: 100px;
+      }
     }
-    .terms a {
-      color: #4a9eff;
-      text-decoration: none;
+
+    /* Loading state */
+    .btn:disabled {
+      opacity: 0.7;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .btn:disabled:hover {
+      transform: none;
+      box-shadow: 0 6px 20px rgba(212, 175, 55, 0.3);
     }
   </style>
 </head>
 <body>
-  <div class="card">
-    <div class="logo">
-      <div class="logo-icon">👑</div>
-      <div class="logo-text">Crown <span>Markets</span></div>
-    </div>
-    <div class="subtitle">Create Your Trading Account</div>
-    <div class="error" id="err"></div>
-    <div class="success" id="succ"></div>
-    
-    <div class="form-group">
-      <label>Full Name</label>
-      <input type="text" id="name" placeholder="John Doe">
-    </div>
-    
-    <div class="form-group">
-      <label>Email Address</label>
-      <input type="email" id="email" placeholder="john@example.com">
-    </div>
-    
-    <div class="form-row">
-      <div class="form-group">
-        <label>Phone</label>
-        <input type="tel" id="phone" placeholder="+254 712 345 678">
+  <div class="container">
+    <div class="card">
+      <!-- Logo Section -->
+      <div class="logo-section">
+        <img src="/static/logo.png" alt="Crown Markets" class="logo-image">
+        <div class="brand-name">Crown Markets</div>
+        <div class="brand-tagline">Trade • Invest • Grow</div>
       </div>
+
+      <div class="subtitle">Create Your Trading Account</div>
+
+      <!-- Alerts -->
+      <div class="alert error" id="err"></div>
+      <div class="alert success" id="succ"></div>
+
+      <!-- Form -->
       <div class="form-group">
-        <label>PIN (6 digits)</label>
-        <input type="password" id="pin" placeholder="000000" maxlength="6">
+        <label>Full Name</label>
+        <input type="text" id="name" placeholder="John Doe">
       </div>
+
+      <div class="form-group">
+        <label>Email Address</label>
+        <input type="email" id="email" placeholder="john@example.com">
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Phone Number</label>
+          <input type="tel" id="phone" placeholder="+254 712 345 678">
+        </div>
+        <div class="form-group">
+          <label>PIN (6 digits)</label>
+          <input type="password" id="pin" placeholder="000000" maxlength="6">
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Password</label>
+        <input type="password" id="pass" placeholder="Min. 8 characters">
+      </div>
+
+      <div class="form-group">
+        <label>Confirm Password</label>
+        <input type="password" id="pass2" placeholder="Confirm your password">
+      </div>
+
+      <!-- Submit Button -->
+      <button class="btn" id="registerBtn" onclick="register()">Create Account</button>
+
+      <!-- Terms -->
+      <div class="terms">
+        By creating an account, you agree to our <a href="#">Terms of Service</a>. 
+        This is a simulated trading platform for educational purposes.
+      </div>
+
+      <!-- Login Link -->
+      <p class="login-link">
+        Already have an account? <a href="/">Sign In</a>
+      </p>
     </div>
-    
-    <div class="form-group">
-      <label>Password</label>
-      <input type="password" id="pass" placeholder="Min. 8 characters">
-    </div>
-    
-    <div class="form-group">
-      <label>Confirm Password</label>
-      <input type="password" id="pass2" placeholder="Confirm your password">
-    </div>
-    
-    <button class="btn" onclick="register()">Create Account</button>
-    
-    <div class="terms">
-      By creating an account, you agree to our Terms of Service. This is a simulated trading platform for educational purposes.
-    </div>
-    
-    <p class="login-link">
-      Already have an account? <a href="/login">Sign in</a>
-    </p>
   </div>
 
   <script>
@@ -212,58 +367,89 @@
       const pass2 = document.getElementById('pass2').value;
       const errEl = document.getElementById('err');
       const succEl = document.getElementById('succ');
-      
+      const btnEl = document.getElementById('registerBtn');
+
       errEl.style.display = 'none';
       succEl.style.display = 'none';
-      
+
+      // Validation
       if (!name || !email || !phone || !pin || !pass || !pass2) {
-        errEl.innerHTML = 'All fields are required';
+        errEl.innerHTML = '✗ All fields are required';
         errEl.style.display = 'block';
         return;
       }
-      
+
       if (pass.length < 8) {
-        errEl.innerHTML = 'Password must be at least 8 characters';
+        errEl.innerHTML = '✗ Password must be at least 8 characters';
         errEl.style.display = 'block';
         return;
       }
-      
+
       if (pass !== pass2) {
-        errEl.innerHTML = 'Passwords do not match';
+        errEl.innerHTML = '✗ Passwords do not match';
         errEl.style.display = 'block';
         return;
       }
-      
+
       if (pin.length !== 6 || !/^\d{6}$/.test(pin)) {
-        errEl.innerHTML = 'PIN must be exactly 6 digits';
+        errEl.innerHTML = '✗ PIN must be exactly 6 digits';
         errEl.style.display = 'block';
         return;
       }
-      
+
+      if (!email.includes('@')) {
+        errEl.innerHTML = '✗ Please enter a valid email address';
+        errEl.style.display = 'block';
+        return;
+      }
+
+      // Disable button during submission
+      btnEl.disabled = true;
+      btnEl.innerHTML = 'Creating Account...';
+
       try {
         const r = await fetch('/api/auth/register', {
           method: 'POST',
           credentials: 'same-origin',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            name, email, phone, pin, password: pass, admin: false
+            name,
+            email,
+            phone,
+            pin,
+            password: pass,
+            admin: false
           })
         });
+
         const d = await r.json();
+
         if (d.success) {
-          succEl.innerHTML = 'Account created! Redirecting to login...';
+          succEl.innerHTML = '✓ Account created successfully! Redirecting...';
           succEl.style.display = 'block';
-          setTimeout(() => { window.location = '/login'; }, 2000);
+          setTimeout(() => {
+            window.location = '/';
+          }, 2000);
         } else {
-          errEl.innerHTML = d.error || 'Registration failed. Please try again.';
+          errEl.innerHTML = '✗ ' + (d.error || 'Registration failed. Please try again.');
           errEl.style.display = 'block';
+          btnEl.disabled = false;
+          btnEl.innerHTML = 'Create Account';
         }
       } catch (e) {
-        errEl.innerHTML = 'Connection error. Please try again.';
+        errEl.innerHTML = '✗ Connection error. Please try again.';
         errEl.style.display = 'block';
+        btnEl.disabled = false;
+        btnEl.innerHTML = 'Create Account';
       }
     }
-    document.addEventListener('keydown', e => { if (e.key === 'Enter') register(); });
+
+    // Enter key support
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        register();
+      }
+    });
   </script>
 </body>
 </html>
