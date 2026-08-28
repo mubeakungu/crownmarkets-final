@@ -836,9 +836,26 @@ def client_referrals():
     conn = get_db()
     cur  = conn.cursor()
     cur.execute(
-        "SELECT r.*, u.name AS referred_name, u.email AS referred_email "
-        "FROM referrals r JOIN users u ON r.referred_id=u.id "
-        "WHERE r.referrer_id=%s ORDER BY r.created_at DESC", (uid,)
+        """
+        SELECT
+            u.id            AS referred_id,
+            u.name          AS referred_name,
+            u.email         AS referred_email,
+            u.created_at    AS joined_at,
+            COALESCE((SELECT SUM(t.amount_usd) FROM transactions t
+                      WHERE t.user_id = u.id
+                        AND t.type = 'DEPOSIT'
+                        AND t.status = 'COMPLETED'), 0) AS total_deposit,
+            r.commission_usd,
+            r.status,
+            r.created_at    AS credited_at
+        FROM users u
+        LEFT JOIN referrals r
+               ON r.referred_id = u.id AND r.referrer_id = %s
+        WHERE u.referred_by = %s
+        ORDER BY u.created_at DESC
+        """,
+        (uid, uid)
     )
     refs = cur.fetchall()
     cur.close(); conn.close()
@@ -1589,6 +1606,51 @@ def admin_reset_client_password(uid):
     log.info(f"Admin reset password for client {u['email']}")
     return ok({"message": f"Password reset for {u['name']}"})
 
+@app.route("/api/admin/client/<uid>/delete", methods=["POST"])
+@admin_required
+def admin_delete_client(uid):
+    """
+    Permanently delete a client and every record tied to them:
+    account, transactions, trades, daily trade log rows, notifications,
+    and referral rows (both as referrer and as referred). Any other user
+    who was referred_by this client has that link cleared instead of
+    being deleted themselves.
+    """
+    conn = get_db()
+    cur  = conn.cursor()
+
+    cur.execute("SELECT id, name, email FROM users WHERE id=%s AND role='client'", (uid,))
+    u = cur.fetchone()
+    if not u:
+        cur.close(); conn.close()
+        return err("Client not found", 404)
+
+    try:
+        cur.execute("SELECT id FROM accounts WHERE user_id=%s", (uid,))
+        acct       = cur.fetchone()
+        account_id = acct["id"] if acct else None
+
+        cur.execute("DELETE FROM daily_trade_log WHERE user_id=%s", (uid,))
+        cur.execute("DELETE FROM trades WHERE user_id=%s", (uid,))
+        cur.execute("DELETE FROM notifications WHERE user_id=%s", (uid,))
+        cur.execute("DELETE FROM transactions WHERE user_id=%s", (uid,))
+        cur.execute("DELETE FROM referrals WHERE referrer_id=%s OR referred_id=%s", (uid, uid))
+        cur.execute("UPDATE users SET referred_by=NULL WHERE referred_by=%s", (uid,))
+
+        if account_id:
+            cur.execute("DELETE FROM accounts WHERE id=%s", (account_id,))
+
+        cur.execute("DELETE FROM users WHERE id=%s", (uid,))
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        cur.close(); conn.close()
+        return err(f"Failed to delete client: {e}")
+
+    cur.close(); conn.close()
+    log.info(f"Admin deleted client permanently: {u['email']}")
+    return ok({"message": f"Client {u['name']} has been permanently deleted"})
+
 @app.route("/api/admin/trade/run-single", methods=["POST"])
 @admin_required
 def admin_run_single_client_trade():
@@ -1960,10 +2022,28 @@ def admin_referrals():
     conn = get_db()
     cur  = conn.cursor()
     cur.execute(
-        "SELECT r.*, u1.name AS referrer_name, u1.email AS referrer_email, "
-        "u2.name AS referred_name, u2.email AS referred_email "
-        "FROM referrals r JOIN users u1 ON r.referrer_id=u1.id "
-        "JOIN users u2 ON r.referred_id=u2.id ORDER BY r.created_at DESC"
+        """
+        SELECT
+            u2.id           AS referred_id,
+            u1.id           AS referrer_id,
+            u1.name         AS referrer_name,
+            u1.email        AS referrer_email,
+            u2.name         AS referred_name,
+            u2.email        AS referred_email,
+            u2.created_at   AS joined_at,
+            COALESCE((SELECT SUM(t.amount_usd) FROM transactions t
+                      WHERE t.user_id = u2.id
+                        AND t.type = 'DEPOSIT'
+                        AND t.status = 'COMPLETED'), 0) AS total_deposit,
+            r.commission_usd,
+            r.status,
+            r.created_at
+        FROM users u2
+        JOIN users u1 ON u2.referred_by = u1.id
+        LEFT JOIN referrals r
+               ON r.referred_id = u2.id AND r.referrer_id = u1.id
+        ORDER BY u2.created_at DESC
+        """
     )
     refs = cur.fetchall()
     cur.close(); conn.close()
