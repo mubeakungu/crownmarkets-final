@@ -538,7 +538,7 @@ async function submitWithdraw() {
   const network = document.getElementById('withdrawNetwork').value;
   const address = document.getElementById('withdrawAddress').value.trim();
   const pin = document.getElementById('withdrawPin').value.trim();
-  if (!amount || amount > 30) { showError('Maximum withdrawal is $30', 'withdrawError'); return; }
+  if (!amount || amount < 30) { showError('Minimum withdrawal is $30', 'withdrawError'); return; }
   if (!address || !pin) { showError('Enter all fields', 'withdrawError'); return; }
   const d = await post('/api/client/withdraw', { amount, network, address, pin });
   if (!d.success) { showError(d.error, 'withdrawError'); return; }
