@@ -120,6 +120,8 @@
     .modal h3 { background:linear-gradient(135deg, var(--primary-gold), var(--gold-bright)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; margin-bottom:18px; font-size:15px; }
     .modal-btns { display:flex; gap:10px; margin-top:18px; justify-content:flex-end; }
     
+    .delete-warning { background:rgba(248,113,113,0.15); border:1px solid rgba(248,113,113,0.3); border-radius:8px; padding:12px; margin-bottom:16px; color:#fca5a5; font-size:13px; }
+    
     @media(max-width:900px) { 
       .sidebar { width:200px; }
       .grid-2 { grid-template-columns:1fr; }
@@ -463,6 +465,34 @@
   </div>
 </div>
 
+<!-- DELETE CLIENT MODAL -->
+<div class="modal-overlay" id="deleteClientModal">
+  <div class="modal">
+    <h3>🗑️ Delete Client</h3>
+    <div class="delete-warning">
+      ⚠️ This action is <strong>PERMANENT</strong>. All data for this client will be deleted including:
+      <ul style="margin-top:8px;margin-left:16px;">
+        <li>Account and balance</li>
+        <li>All transactions</li>
+        <li>All trades</li>
+        <li>Referral records</li>
+        <li>Notifications</li>
+      </ul>
+      This cannot be undone.
+    </div>
+    <div style="background:rgba(212, 175, 55, 0.1);border:1px solid rgba(212, 175, 55, 0.3);border-radius:8px;padding:14px;margin-bottom:14px;font-size:13px;line-height:2;">
+      <div><span style="color:var(--text-muted);">Client:</span> <strong id="delModalClientName"></strong></div>
+      <div><span style="color:var(--text-muted);">Email:</span> <span id="delModalClientEmail" style="font-size:11px;"></span></div>
+      <div><span style="color:var(--text-muted);">Balance:</span> <span id="delModalClientBalance" style="color:var(--accent-green);font-weight:bold;"></span></div>
+    </div>
+    <input type="hidden" id="deleteClientId">
+    <div class="modal-btns">
+      <button class="btn btn-sm" style="background:rgba(107,114,128,0.2);color:#d1d5db;" onclick="closeModal('deleteClientModal')">Cancel</button>
+      <button class="btn btn-sm btn-danger" onclick="confirmDeleteClient()">Yes, Delete Permanently</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const api  = (url,opts={}) => fetch(url,{credentials:'same-origin',...opts}).then(r=>r.json());
 const post = (u,b) => api(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});
@@ -648,7 +678,7 @@ function renderClients(clients) {
   let html = `<table class="tbl"><thead><tr><th>Name</th><th>Email</th><th>Balance</th><th>Equity</th><th>Deposits</th><th>Withdrawals</th><th>Profit</th><th>Ref Earned</th><th>Days Active</th><th>Actions</th></tr></thead><tbody>`;
   clients.forEach(c => {
     storeClient(c);
-    html += `<tr><td><strong>${escHtml(c.name || '—')}</strong></td><td style="font-size:11px;color:#6b7280;">${escHtml(c.email || '—')}</td><td style="color:var(--accent-green);font-weight:bold;">${fmtD(c.balance || 0)}</td><td style="color:var(--primary-gold);">${fmtD(c.equity || 0)}</td><td>${fmtD(c.total_deposits || 0)}</td><td style="color:var(--accent-red);">${fmtD(c.total_withdrawals || 0)}</td><td>${fmtD(c.total_profit || 0)}</td><td style="color:var(--primary-gold);">${fmtD(c.total_ref_earned || 0)}</td><td style="text-align:center;">${c.days_active || 0}</td><td><button class="btn-sm" style="background:rgba(212, 175, 55, 0.2);color:var(--primary-gold);" onclick="openEditClientModal('${c.id}')">✏️ Edit</button></td></tr>`;
+    html += `<tr><td><strong>${escHtml(c.name || '—')}</strong></td><td style="font-size:11px;color:#6b7280;">${escHtml(c.email || '—')}</td><td style="color:var(--accent-green);font-weight:bold;">${fmtD(c.balance || 0)}</td><td style="color:var(--primary-gold);">${fmtD(c.equity || 0)}</td><td>${fmtD(c.total_deposits || 0)}</td><td style="color:var(--accent-red);">${fmtD(c.total_withdrawals || 0)}</td><td>${fmtD(c.total_profit || 0)}</td><td style="color:var(--primary-gold);">${fmtD(c.total_ref_earned || 0)}</td><td style="text-align:center;">${c.days_active || 0}</td><td><div style="display:flex;gap:6px;"><button class="btn-sm" style="background:rgba(212, 175, 55, 0.2);color:var(--primary-gold);" onclick="openEditClientModal('${c.id}')">✏️ Edit</button><button class="btn-sm btn-danger" onclick="openDeleteClientModal('${c.id}')">🗑️ Delete</button></div></td></tr>`;
   });
   html += '</tbody></table>';
   setHTML(el, html);
@@ -805,6 +835,16 @@ function openEditClientModal(uid) {
   document.getElementById('editClientModal').classList.add('show');
 }
 
+function openDeleteClientModal(uid) {
+  const c = _clientMap[uid];
+  if (!c) return;
+  document.getElementById('deleteClientId').value = uid;
+  document.getElementById('delModalClientName').textContent = c.name || '—';
+  document.getElementById('delModalClientEmail').textContent = c.email || '—';
+  document.getElementById('delModalClientBalance').textContent = fmtD(c.balance || 0);
+  document.getElementById('deleteClientModal').classList.add('show');
+}
+
 function closeModal(id) { document.getElementById(id).classList.remove('show'); }
 
 document.querySelectorAll('.modal-overlay').forEach(o => {
@@ -859,6 +899,15 @@ async function saveClientEdit() {
   if (!d.success) { showError(d.error, 'editClientErr'); return; }
   closeModal('editClientModal');
   showSuccess('Client updated');
+  await refreshData();
+}
+
+async function confirmDeleteClient() {
+  const uid = document.getElementById('deleteClientId').value;
+  const d = await post(`/api/admin/client/${uid}/delete`, {});
+  closeModal('deleteClientModal');
+  if (!d.success) { showError(d.error); return; }
+  showSuccess(d.data.message);
   await refreshData();
 }
 
