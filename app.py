@@ -6,7 +6,7 @@
 # - Referral system: 0% commission (disabled) BUT tracks referrals
 # - Manual wallet for USDT deposits
 # - Min deposit: $250
-# - Max withdrawal: $30
+# - Min withdrawal: $30
 # - Referral withdrawal deducts only from bonus (ref_balance)
 # - Withdrawal deducted only on admin approval
 # - Database: PostgreSQL (psycopg2)
@@ -2118,9 +2118,9 @@ if __name__ == "__main__":
     print(f"   Admin  : admin@test.com / admin1234")
     print(f"   Rate   : ${DAILY_PROFIT_USD} flat per eligible client daily at {TRADE_HOUR:02d}:00 UTC ({TRADE_HOUR+3:02d}:00 EAT)")
     print(f"   Eligible min total deposit: ${MIN_BALANCE:.0f}")
-    print(f"   Max withdrawal per transaction: ${MAX_WITHDRAWAL:.0f}")
+    print(f"   Max withdrawal per transaction: ${MIN_WITHDRAWAL:.0f}")
     print(f"   Symbol : {TRADE_SYMBOL}")
-    print(f"   Min Dep: $250  |  Max Withdrawal : ${MAX_WITHDRAWAL}  |  Ref Commission: 0% (DISABLED)")
+    print(f"   Min Dep: $250  |  Min Withdrawal : ${MIN_WITHDRAWAL}  |  Ref Commission: 0% (DISABLED)")
     print(f"   Binance: {'CONNECTED ✓' if bnb else 'fallback prices'}")
     print(f"   TRC20  : {'SET ✓' if MANUAL_WALLETS.get('TRC20') else 'NOT SET ✗'}")
     print(f"   M-Pesa : STK Push | Env: {MPESA_ENV} | Shortcode: {MPESA_SHORTCODE}")
