@@ -3,7 +3,7 @@
 # - One controlled trade per client per day
 # - Trade profit: $3.5 flat per client daily (for deposits >= $250)
 # - Realistic trade using real Binance prices
-# - Referral system: 0% commission (disabled)
+# - Referral system: 0% commission (disabled) BUT tracks referrals
 # - Manual wallet for USDT deposits
 # - Min deposit: $250
 # - Max withdrawal: $30
@@ -447,8 +447,10 @@ def start_scheduler():
 
 # ── REFERRAL ENGINE ───────────────────────────────────────────────────────────
 def process_referral_commission(tx_id, user_id, amount_usd):
-    if REFERRAL_COMMISSION_PCT == 0 or amount_usd < REFERRAL_MIN_DEPOSIT:
+    """Track referral (even if commission is 0%) and award commission if enabled."""
+    if amount_usd < REFERRAL_MIN_DEPOSIT:
         return
+    
     conn = get_db()
     cur  = conn.cursor()
     cur.execute("SELECT * FROM users WHERE id=%s", (user_id,))
@@ -456,6 +458,7 @@ def process_referral_commission(tx_id, user_id, amount_usd):
     if not user or not user["referred_by"]:
         cur.close(); conn.close(); return
 
+    # Check if referral already exists for this user (skip duplicates)
     cur.execute("SELECT id FROM referrals WHERE referred_id=%s", (user_id,))
     if cur.fetchone():
         cur.close(); conn.close(); return
@@ -465,21 +468,32 @@ def process_referral_commission(tx_id, user_id, amount_usd):
     if not referrer:
         cur.close(); conn.close(); return
 
+    # Always create referral record (for tracking), but only award commission if enabled
     commission = round(amount_usd * REFERRAL_COMMISSION_PCT, 2)
-    if commission > 0:
+    try:
         cur.execute(
             "INSERT INTO referrals(id,referrer_id,referred_id,commission_usd,"
             "status,triggered_by,created_at) VALUES(%s,%s,%s,%s,'CREDITED',%s,%s)",
             (_uid(), referrer["id"], user_id, commission, tx_id, _now())
         )
-        cur.execute(
-            "UPDATE accounts SET ref_balance=ref_balance+%s WHERE user_id=%s",
-            (commission, referrer["id"])
-        )
+        
+        # Only update ref_balance if commission > 0
+        if commission > 0:
+            cur.execute(
+                "UPDATE accounts SET ref_balance=ref_balance+%s WHERE user_id=%s",
+                (commission, referrer["id"])
+            )
+            log.info(f"Referral commission: {referrer['name']} +${commission}")
+        else:
+            log.info(f"Referral tracked (0% commission): {referrer['name']} ← {user['name']}")
+        
         conn.commit()
-        log.info(f"Referral commission: {referrer['name']} +${commission}")
-    cur.close()
-    conn.close()
+    except Exception as e:
+        conn.rollback()
+        log.warning(f"Referral tracking failed: {e}")
+    finally:
+        cur.close()
+        conn.close()
 
 # ── DARAJA STK PUSH ENGINE ────────────────────────────────────────────────────
 
