@@ -57,7 +57,7 @@
         nav {
             background: rgba(10, 14, 39, 0.95);
             border-bottom: 1px solid var(--primary-gold);
-            padding: 1rem 2rem;
+            padding: 0.8rem 2rem;
             display: flex;
             justify-content: space-between;
             align-items: center;
@@ -67,8 +67,32 @@
             z-index: 100;
         }
 
+        .nav-left {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .nav-logo {
+            width: 45px;
+            height: 45px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, rgba(212, 175, 55, 0.1), rgba(212, 175, 55, 0.05));
+            border: 1px solid var(--primary-gold);
+            border-radius: 8px;
+            box-shadow: 0 0 15px rgba(212, 175, 55, 0.2);
+        }
+
+        .nav-logo img {
+            width: 40px;
+            height: 40px;
+            object-fit: contain;
+        }
+
         .nav-brand {
-            font-size: 1.5rem;
+            font-size: 1.3rem;
             font-weight: 700;
             color: var(--primary-gold);
             letter-spacing: 2px;
@@ -178,12 +202,17 @@
         .hero-image {
             text-align: center;
             animation: float 3s ease-in-out infinite;
+            background: linear-gradient(135deg, rgba(212, 175, 55, 0.1), rgba(212, 175, 55, 0.05));
+            padding: 2rem;
+            border: 2px solid rgba(212, 175, 55, 0.3);
+            border-radius: 15px;
+            box-shadow: 0 0 40px rgba(212, 175, 55, 0.2);
         }
 
         .hero-image img {
             max-width: 100%;
             height: auto;
-            filter: drop-shadow(0 0 30px rgba(212, 175, 55, 0.3));
+            filter: drop-shadow(0 0 30px rgba(212, 175, 55, 0.4));
         }
 
         @keyframes float {
@@ -455,6 +484,10 @@
             .cta-buttons .btn {
                 width: 100%;
             }
+
+            .nav-brand {
+                font-size: 1rem;
+            }
         }
 
         /* Glow effect */
@@ -470,7 +503,12 @@
 
     <!-- Navigation -->
     <nav>
-        <div class="nav-brand">⚜ CROWN MARKETS</div>
+        <div class="nav-left">
+            <div class="nav-logo">
+                <img src="/static/logo.png" alt="Crown Markets Logo">
+            </div>
+            <div class="nav-brand">⚜ CROWN MARKETS</div>
+        </div>
         <div class="nav-links">
             <a href="#features">Features</a>
             <a href="#about">About</a>
