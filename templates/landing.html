@@ -22,12 +22,35 @@
             --text-muted: #a8a8a8;
         }
 
+        html, body {
+            height: 100%;
+        }
+
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 100%);
             color: var(--text-light);
             overflow-x: hidden;
             min-height: 100vh;
+            position: relative;
+        }
+
+        /* ===== Animated trading-chart wallpaper (fixed, full-page background) ===== */
+        #chartWallpaper {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 0;
+            pointer-events: none;
+            display: block;
+        }
+
+        /* everything else sits above the wallpaper */
+        nav, .hero, .features, .stats, .cta, footer {
+            position: relative;
+            z-index: 1;
         }
 
         /* Navbar */
@@ -108,7 +131,7 @@
             justify-content: center;
             min-height: 100vh;
             padding: 4rem 2rem;
-            background: radial-gradient(ellipse at center, rgba(212, 175, 55, 0.1) 0%, transparent 70%);
+            background: radial-gradient(ellipse at center, rgba(212, 175, 55, 0.08) 0%, transparent 70%);
         }
 
         .hero-content {
@@ -168,10 +191,63 @@
             50% { transform: translateY(20px); }
         }
 
+        /* Ticker overlay strip, sits just under the nav, above the wallpaper */
+        .ticker-wrap {
+            position: relative;
+            z-index: 1;
+            width: 100%;
+            overflow: hidden;
+            background: rgba(10, 14, 39, 0.75);
+            border-bottom: 1px solid rgba(212, 175, 55, 0.3);
+            padding: 0.7rem 0;
+            backdrop-filter: blur(4px);
+        }
+
+        .ticker-track {
+            display: flex;
+            width: max-content;
+            animation: ticker-scroll 35s linear infinite;
+        }
+
+        .ticker-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0 1.75rem;
+            border-right: 1px solid rgba(212, 175, 55, 0.15);
+            white-space: nowrap;
+            font-size: 0.9rem;
+        }
+
+        .ticker-symbol {
+            color: var(--primary-gold);
+            font-weight: 700;
+            letter-spacing: 0.5px;
+        }
+
+        .ticker-price {
+            color: var(--text-light);
+            font-variant-numeric: tabular-nums;
+        }
+
+        .ticker-change {
+            font-weight: 600;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .ticker-change.up { color: var(--accent-green); }
+        .ticker-change.down { color: var(--accent-red); }
+
+        @keyframes ticker-scroll {
+            from { transform: translateX(0); }
+            to { transform: translateX(-50%); }
+        }
+
         /* Features Section */
         .features {
             padding: 6rem 2rem;
-            background: rgba(26, 31, 58, 0.5);
+            background: rgba(26, 31, 58, 0.75);
+            backdrop-filter: blur(2px);
         }
 
         .features-container {
@@ -238,9 +314,10 @@
         /* Stats Section */
         .stats {
             padding: 6rem 2rem;
-            background: rgba(212, 175, 55, 0.05);
+            background: rgba(212, 175, 55, 0.08);
             border-top: 2px solid var(--primary-gold);
             border-bottom: 2px solid var(--primary-gold);
+            backdrop-filter: blur(2px);
         }
 
         .stats-container {
@@ -387,6 +464,10 @@
     </style>
 </head>
 <body>
+
+    <!-- Animated trading chart wallpaper, fixed behind the whole page -->
+    <canvas id="chartWallpaper"></canvas>
+
     <!-- Navigation -->
     <nav>
         <div class="nav-brand">⚜ CROWN MARKETS</div>
@@ -397,6 +478,11 @@
             <a href="/register" class="btn btn-gold">Get Started</a>
         </div>
     </nav>
+
+    <!-- Ticker strip -->
+    <div class="ticker-wrap">
+        <div class="ticker-track" id="tickerTrack"></div>
+    </div>
 
     <!-- Hero Section -->
     <section class="hero">
@@ -418,7 +504,7 @@
     </section>
 
     <!-- Mission Section -->
-    <section class="mission" style="padding: 6rem 2rem; background: rgba(212, 175, 55, 0.08); border-top: 2px solid var(--primary-gold); border-bottom: 1px solid rgba(212, 175, 55, 0.2);">
+    <section class="mission" style="position: relative; z-index: 1; padding: 6rem 2rem; background: rgba(212, 175, 55, 0.08); border-top: 2px solid var(--primary-gold); border-bottom: 1px solid rgba(212, 175, 55, 0.2); backdrop-filter: blur(2px);">
         <div style="max-width: 900px; margin: 0 auto; text-align: center;">
             <h2 style="font-size: 2.2rem; margin-bottom: 1.5rem; background: linear-gradient(135deg, #d4af37, #f0d96e); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;">Our Mission</h2>
             <p style="font-size: 1.05rem; color: var(--text-light); line-height: 1.8; color: #d4d4d4;">
@@ -552,5 +638,155 @@
             </p>
         </div>
     </footer>
+
+    <!-- ===== Ticker feed (simulated, self-contained, no external deps) ===== -->
+    <script>
+        const MARKETS = [
+            { symbol: "EUR/USD", price: 1.0842 },
+            { symbol: "GBP/USD", price: 1.2715 },
+            { symbol: "USD/JPY", price: 149.62 },
+            { symbol: "USD/CHF", price: 0.8815 },
+            { symbol: "AUD/USD", price: 0.6534 },
+            { symbol: "BTC/USD", price: 62450.00 },
+            { symbol: "ETH/USD", price: 3120.50 },
+            { symbol: "SOL/USD", price: 148.20 },
+            { symbol: "XAU/USD", price: 2385.40 },
+            { symbol: "XAG/USD", price: 28.65 },
+            { symbol: "WTI/USD", price: 78.30 },
+            { symbol: "US30", price: 39250.00 },
+            { symbol: "NAS100", price: 18420.00 },
+            { symbol: "SPX500", price: 5320.00 },
+            { symbol: "GER40", price: 18230.00 },
+            { symbol: "AAPL", price: 191.40 },
+            { symbol: "TSLA", price: 245.80 },
+            { symbol: "MSFT", price: 415.20 }
+        ];
+
+        const state = {};
+        MARKETS.forEach(m => { state[m.symbol] = { price: m.price, base: m.price, change: 0 }; });
+
+        function fmtPrice(symbol, price) {
+            if (["BTC/USD", "ETH/USD", "SOL/USD"].includes(symbol)) return price.toFixed(2);
+            if (["US30", "NAS100", "SPX500", "GER40", "AAPL", "TSLA", "MSFT"].includes(symbol)) return price.toFixed(2);
+            if (symbol.includes("JPY")) return price.toFixed(3);
+            return price.toFixed(4);
+        }
+
+        function stepPrice(m) {
+            const s = state[m.symbol];
+            const volatility = s.base * 0.0006;
+            const move = (Math.random() - 0.5) * volatility * 2;
+            s.price = Math.max(0.0001, s.price + move);
+            s.change = ((s.price - s.base) / s.base) * 100;
+            return s;
+        }
+
+        const tickerTrack = document.getElementById("tickerTrack");
+        function renderTicker() {
+            const items = MARKETS.map(m => {
+                const s = state[m.symbol];
+                const dir = s.change >= 0 ? "up" : "down";
+                const arrow = s.change >= 0 ? "▲" : "▼";
+                return `<div class="ticker-item">
+                    <span class="ticker-symbol">${m.symbol}</span>
+                    <span class="ticker-price">${fmtPrice(m.symbol, s.price)}</span>
+                    <span class="ticker-change ${dir}">${arrow} ${Math.abs(s.change).toFixed(2)}%</span>
+                </div>`;
+            }).join("");
+            tickerTrack.innerHTML = items + items;
+        }
+
+        renderTicker();
+        setInterval(() => { MARKETS.forEach(stepPrice); renderTicker(); }, 1200);
+    </script>
+
+    <!-- ===== Full-page animated trading-chart wallpaper ===== -->
+    <script>
+        (function () {
+            const canvas = document.getElementById("chartWallpaper");
+            const ctx = canvas.getContext("2d");
+
+            function resize() {
+                canvas.width = window.innerWidth * devicePixelRatio;
+                canvas.height = window.innerHeight * devicePixelRatio;
+            }
+            window.addEventListener("resize", resize);
+            resize();
+
+            // Three parallel price series drifting left, at different depths/opacities,
+            // to give a layered "market data" wallpaper feel behind the content.
+            function makeSeries(pointCount, baseline, amplitude, color, lineWidth, opacity, speed) {
+                const points = [];
+                let last = baseline;
+                for (let i = 0; i < pointCount; i++) {
+                    last += (Math.random() - 0.5) * amplitude;
+                    points.push(last);
+                }
+                return { points, baseline, amplitude, color, lineWidth, opacity, speed, offset: 0 };
+            }
+
+            let series = [];
+            function buildSeries() {
+                const h = canvas.height;
+                series = [
+                    makeSeries(140, h * 0.30, h * 0.012, "0, 255, 65", 2.5 * devicePixelRatio, 0.10, 0.35),
+                    makeSeries(140, h * 0.55, h * 0.015, "212, 175, 55", 2 * devicePixelRatio, 0.08, 0.22),
+                    makeSeries(140, h * 0.75, h * 0.010, "255, 51, 51", 2 * devicePixelRatio, 0.07, 0.28)
+                ];
+            }
+            buildSeries();
+            window.addEventListener("resize", buildSeries);
+
+            function extendSeries(s) {
+                // scroll the series by shifting points and appending a new random-walk value
+                const last = s.points[s.points.length - 1];
+                const next = last + (Math.random() - 0.5) * s.amplitude
+                    + (s.baseline - last) * 0.02; // gentle pull back toward baseline so it doesn't drift off-canvas
+                s.points.shift();
+                s.points.push(next);
+            }
+
+            function drawSeries(s) {
+                const w = canvas.width;
+                const step = w / (s.points.length - 1);
+
+                ctx.beginPath();
+                ctx.strokeStyle = `rgba(${s.color}, ${s.opacity})`;
+                ctx.lineWidth = s.lineWidth;
+                s.points.forEach((y, i) => {
+                    const x = i * step;
+                    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+                });
+                ctx.stroke();
+
+                // soft fill under the line for a "depth chart" wallpaper look
+                const grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+                grad.addColorStop(0, `rgba(${s.color}, ${s.opacity * 0.6})`);
+                grad.addColorStop(1, `rgba(${s.color}, 0)`);
+                ctx.lineTo(w, canvas.height);
+                ctx.lineTo(0, canvas.height);
+                ctx.closePath();
+                ctx.fillStyle = grad;
+                ctx.fill();
+            }
+
+            let frame = 0;
+            function animate() {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                frame++;
+                series.forEach(s => {
+                    // advance each series at its own speed for parallax
+                    s.offset += s.speed;
+                    if (s.offset >= 1) {
+                        s.offset = 0;
+                        extendSeries(s);
+                    }
+                    drawSeries(s);
+                });
+                requestAnimationFrame(animate);
+            }
+            animate();
+        })();
+    </script>
 </body>
 </html>
