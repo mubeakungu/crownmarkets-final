@@ -66,7 +66,7 @@ if not DATABASE_URL:
 
 DAILY_PROFIT_USD    = float(os.environ.get("DAILY_PROFIT_USD", "3.5"))
 MIN_BALANCE         = float(os.environ.get("MIN_BALANCE", "250.0"))
-MAX_WITHDRAWAL      = float(os.environ.get("MAX_WITHDRAWAL", "30.0"))
+MIN_WITHDRAWAL      = float(os.environ.get("MIN_WITHDRAWAL", "30.0"))
 TRADE_HOUR          = int(os.environ.get("TRADE_HOUR", "5"))
 TRADE_SYMBOL        = os.environ.get("TRADE_SYMBOL", "BTCUSDT")
 CHECK_INTERVAL      = 60
@@ -836,26 +836,9 @@ def client_referrals():
     conn = get_db()
     cur  = conn.cursor()
     cur.execute(
-        """
-        SELECT
-            u.id            AS referred_id,
-            u.name          AS referred_name,
-            u.email         AS referred_email,
-            u.created_at    AS joined_at,
-            COALESCE((SELECT SUM(t.amount_usd) FROM transactions t
-                      WHERE t.user_id = u.id
-                        AND t.type = 'DEPOSIT'
-                        AND t.status = 'COMPLETED'), 0) AS total_deposit,
-            r.commission_usd,
-            r.status,
-            r.created_at    AS credited_at
-        FROM users u
-        LEFT JOIN referrals r
-               ON r.referred_id = u.id AND r.referrer_id = %s
-        WHERE u.referred_by = %s
-        ORDER BY u.created_at DESC
-        """,
-        (uid, uid)
+        "SELECT r.*, u.name AS referred_name, u.email AS referred_email "
+        "FROM referrals r JOIN users u ON r.referred_id=u.id "
+        "WHERE r.referrer_id=%s ORDER BY r.created_at DESC", (uid,)
     )
     refs = cur.fetchall()
     cur.close(); conn.close()
@@ -885,9 +868,9 @@ def client_referral_withdraw():
         return err("Invalid PIN", 403)
 
     ref_bal = a["ref_balance"] if a else 0
-    if ref_bal < 1:
+    if ref_bal < MIN_WITHDRAWAL:
         cur.close(); conn.close()
-        return err("No bonus balance available to withdraw")
+        return err(f"Minimum referral withdrawal is ${MIN_WITHDRAWAL}")
 
     cur.execute("UPDATE accounts SET ref_balance=0 WHERE user_id=%s", (uid,))
     ref = "REF-" + secrets.token_hex(4).upper()
@@ -1279,7 +1262,7 @@ def client_withdraw():
     addr = d.get("address","").strip()
     pin  = d.get("pin","")
 
-    if amt > MAX_WITHDRAWAL:    return err(f"Maximum withdrawal is ${MAX_WITHDRAWAL}")
+    if amt < MIN_WITHDRAWAL:    return err(f"Minimum withdrawal is ${MIN_WITHDRAWAL}")
     if amt <= 0:                return err("Withdrawal amount must be greater than $0")
     if not addr:                return err("Enter withdrawal address")
     if net not in NETWORKS:     return err("Invalid network")
@@ -1352,7 +1335,7 @@ def admin_stats():
         "daily_profit_rate":   f"${DAILY_PROFIT_USD}",
         "trade_symbol":        TRADE_SYMBOL,
         "scheduler_running":   _scheduler_started,
-        "max_withdrawal":      MAX_WITHDRAWAL,
+        "min_withdrawal":      MIN_WITHDRAWAL,
     })
 
 @app.route("/api/admin/transactions")
@@ -1542,6 +1525,108 @@ def admin_adjust_balance(uid):
     cur.close(); conn.close()
     return ok({"message": f"Balance adjusted by {amount:+.2f}"})
 
+@app.route("/api/admin/client/<uid>/create-deposit-tx", methods=["POST"])
+@admin_required
+def admin_create_deposit_transaction(uid):
+    """Manually create a deposit transaction and update balance."""
+    d      = request.json or {}
+    amount = float(d.get("amount", 0))
+    method = d.get("method", "MANUAL").upper()
+    note   = d.get("note", "Manual deposit")
+    
+    if amount <= 0: return err("Amount must be greater than 0")
+    if not method: return err("Method is required")
+    
+    conn = get_db()
+    cur  = conn.cursor()
+    
+    cur.execute("SELECT id FROM users WHERE id=%s AND role='client'", (uid,))
+    if not cur.fetchone():
+        cur.close(); conn.close()
+        return err("Client not found", 404)
+    
+    cur.execute("SELECT * FROM accounts WHERE user_id=%s", (uid,))
+    a = cur.fetchone()
+    if not a:
+        cur.close(); conn.close()
+        return err("Account not found")
+    
+    ref = "DEP-" + secrets.token_hex(4).upper()
+    now = _now()
+    
+    # Create completed deposit transaction
+    cur.execute(
+        "INSERT INTO transactions(id,user_id,account_id,type,method,amount_usd,"
+        "reference,status,note,created_at,completed_at) "
+        "VALUES(%s,%s,%s,'DEPOSIT',%s,%s,%s,'COMPLETED',%s,%s,%s)",
+        (_uid(), uid, a["id"], method, amount, ref, note, now, now)
+    )
+    
+    # Update balance and equity
+    cur.execute(
+        "UPDATE accounts SET balance=balance+%s, equity=equity+%s WHERE user_id=%s",
+        (amount, amount, uid)
+    )
+    
+    conn.commit()
+    cur.close(); conn.close()
+    
+    log.info(f"Manual deposit created: {ref} | Client: {uid} | ${amount}")
+    return ok({"reference": ref, "message": f"Deposit of ${amount:.2f} created and completed"})
+
+@app.route("/api/admin/client/<uid>/create-withdrawal-tx", methods=["POST"])
+@admin_required
+def admin_create_withdrawal_transaction(uid):
+    """Manually create a withdrawal transaction and deduct from balance."""
+    d      = request.json or {}
+    amount = float(d.get("amount", 0))
+    method = d.get("method", "MANUAL").upper()
+    note   = d.get("note", "Manual withdrawal")
+    
+    if amount <= 0: return err("Amount must be greater than 0")
+    if not method: return err("Method is required")
+    
+    conn = get_db()
+    cur  = conn.cursor()
+    
+    cur.execute("SELECT id FROM users WHERE id=%s AND role='client'", (uid,))
+    if not cur.fetchone():
+        cur.close(); conn.close()
+        return err("Client not found", 404)
+    
+    cur.execute("SELECT * FROM accounts WHERE user_id=%s", (uid,))
+    a = cur.fetchone()
+    if not a:
+        cur.close(); conn.close()
+        return err("Account not found")
+    
+    if a["balance"] < amount:
+        cur.close(); conn.close()
+        return err(f"Insufficient balance (${a['balance']:.2f}). Cannot withdraw ${amount:.2f}")
+    
+    ref = "WD-" + secrets.token_hex(4).upper()
+    now = _now()
+    
+    # Create completed withdrawal transaction
+    cur.execute(
+        "INSERT INTO transactions(id,user_id,account_id,type,method,amount_usd,"
+        "reference,status,note,created_at,completed_at) "
+        "VALUES(%s,%s,%s,'WITHDRAWAL',%s,%s,%s,'COMPLETED',%s,%s,%s)",
+        (_uid(), uid, a["id"], method, amount, ref, note, now, now)
+    )
+    
+    # Deduct from balance and equity
+    cur.execute(
+        "UPDATE accounts SET balance=balance-%s, equity=equity-%s WHERE user_id=%s",
+        (amount, amount, uid)
+    )
+    
+    conn.commit()
+    cur.close(); conn.close()
+    
+    log.info(f"Manual withdrawal created: {ref} | Client: {uid} | ${amount}")
+    return ok({"reference": ref, "message": f"Withdrawal of ${amount:.2f} created and completed"})
+
 @app.route("/api/admin/client/<uid>/edit", methods=["POST"])
 @admin_required
 def admin_edit_client(uid):
@@ -1605,51 +1690,6 @@ def admin_reset_client_password(uid):
 
     log.info(f"Admin reset password for client {u['email']}")
     return ok({"message": f"Password reset for {u['name']}"})
-
-@app.route("/api/admin/client/<uid>/delete", methods=["POST"])
-@admin_required
-def admin_delete_client(uid):
-    """
-    Permanently delete a client and every record tied to them:
-    account, transactions, trades, daily trade log rows, notifications,
-    and referral rows (both as referrer and as referred). Any other user
-    who was referred_by this client has that link cleared instead of
-    being deleted themselves.
-    """
-    conn = get_db()
-    cur  = conn.cursor()
-
-    cur.execute("SELECT id, name, email FROM users WHERE id=%s AND role='client'", (uid,))
-    u = cur.fetchone()
-    if not u:
-        cur.close(); conn.close()
-        return err("Client not found", 404)
-
-    try:
-        cur.execute("SELECT id FROM accounts WHERE user_id=%s", (uid,))
-        acct       = cur.fetchone()
-        account_id = acct["id"] if acct else None
-
-        cur.execute("DELETE FROM daily_trade_log WHERE user_id=%s", (uid,))
-        cur.execute("DELETE FROM trades WHERE user_id=%s", (uid,))
-        cur.execute("DELETE FROM notifications WHERE user_id=%s", (uid,))
-        cur.execute("DELETE FROM transactions WHERE user_id=%s", (uid,))
-        cur.execute("DELETE FROM referrals WHERE referrer_id=%s OR referred_id=%s", (uid, uid))
-        cur.execute("UPDATE users SET referred_by=NULL WHERE referred_by=%s", (uid,))
-
-        if account_id:
-            cur.execute("DELETE FROM accounts WHERE id=%s", (account_id,))
-
-        cur.execute("DELETE FROM users WHERE id=%s", (uid,))
-        conn.commit()
-    except Exception as e:
-        conn.rollback()
-        cur.close(); conn.close()
-        return err(f"Failed to delete client: {e}")
-
-    cur.close(); conn.close()
-    log.info(f"Admin deleted client permanently: {u['email']}")
-    return ok({"message": f"Client {u['name']} has been permanently deleted"})
 
 @app.route("/api/admin/trade/run-single", methods=["POST"])
 @admin_required
@@ -2022,28 +2062,10 @@ def admin_referrals():
     conn = get_db()
     cur  = conn.cursor()
     cur.execute(
-        """
-        SELECT
-            u2.id           AS referred_id,
-            u1.id           AS referrer_id,
-            u1.name         AS referrer_name,
-            u1.email        AS referrer_email,
-            u2.name         AS referred_name,
-            u2.email        AS referred_email,
-            u2.created_at   AS joined_at,
-            COALESCE((SELECT SUM(t.amount_usd) FROM transactions t
-                      WHERE t.user_id = u2.id
-                        AND t.type = 'DEPOSIT'
-                        AND t.status = 'COMPLETED'), 0) AS total_deposit,
-            r.commission_usd,
-            r.status,
-            r.created_at
-        FROM users u2
-        JOIN users u1 ON u2.referred_by = u1.id
-        LEFT JOIN referrals r
-               ON r.referred_id = u2.id AND r.referrer_id = u1.id
-        ORDER BY u2.created_at DESC
-        """
+        "SELECT r.*, u1.name AS referrer_name, u1.email AS referrer_email, "
+        "u2.name AS referred_name, u2.email AS referred_email "
+        "FROM referrals r JOIN users u1 ON r.referrer_id=u1.id "
+        "JOIN users u2 ON r.referred_id=u2.id ORDER BY r.created_at DESC"
     )
     refs = cur.fetchall()
     cur.close(); conn.close()
@@ -2101,7 +2123,7 @@ def scheduler_status():
         "daily_profit_rate": f"${DAILY_PROFIT_USD}",
         "profit_basis":      f"${DAILY_PROFIT_USD} per eligible client per day (min deposit: ${MIN_BALANCE})",
         "min_balance":       MIN_BALANCE,
-        "max_withdrawal":    MAX_WITHDRAWAL,
+        "min_withdrawal":    MIN_WITHDRAWAL,
         "symbol":            TRADE_SYMBOL,
     })
 
@@ -2118,9 +2140,9 @@ if __name__ == "__main__":
     print(f"   Admin  : admin@test.com / admin1234")
     print(f"   Rate   : ${DAILY_PROFIT_USD} flat per eligible client daily at {TRADE_HOUR:02d}:00 UTC ({TRADE_HOUR+3:02d}:00 EAT)")
     print(f"   Eligible min total deposit: ${MIN_BALANCE:.0f}")
-    print(f"   Max withdrawal per transaction: ${MIN_WITHDRAWAL:.0f}")
+    print(f"   Min withdrawal per transaction: ${MIN_WITHDRAWAL:.0f}")
     print(f"   Symbol : {TRADE_SYMBOL}")
-    print(f"   Min Dep: $250  |  Min Withdrawal : ${MIN_WITHDRAWAL}  |  Ref Commission: 0% (DISABLED)")
+    print(f"   Deposit: $250 min  |  Withdrawal: ${MIN_WITHDRAWAL} min (unlimited max)  |  Ref Commission: 0% (DISABLED)")
     print(f"   Binance: {'CONNECTED ✓' if bnb else 'fallback prices'}")
     print(f"   TRC20  : {'SET ✓' if MANUAL_WALLETS.get('TRC20') else 'NOT SET ✗'}")
     print(f"   M-Pesa : STK Push | Env: {MPESA_ENV} | Shortcode: {MPESA_SHORTCODE}")
