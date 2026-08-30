@@ -1,16 +1,3 @@
-# Crown Markets v5.28 - $3.5 DAILY PROFIT PER CLIENT (FLAT)
-# - Scheduler starts at module level (works with gunicorn on Render)
-# - One controlled trade per client per day
-# - Trade profit: $3.5 flat per client daily (for deposits >= $250)
-# - Realistic trade using real Binance prices
-# - Referral system: 0% commission (disabled) BUT tracks referrals
-# - Manual wallet for USDT deposits
-# - Min deposit: $250
-# - Min withdrawal: $30
-# - Referral withdrawal deducts only from bonus (ref_balance)
-# - Withdrawal deducted only on admin approval
-# - Database: PostgreSQL (psycopg2)
-
 import os, hashlib, secrets, datetime, uuid, logging, threading, random, base64, math
 import psycopg2
 import psycopg2.extras
@@ -415,6 +402,7 @@ def run_daily_trades():
 _scheduler_lock    = threading.Lock()
 _scheduler_started = False
 _scheduler_stop    = threading.Event()
+_scheduler_holder  = None  # Track which worker has the lock
 
 def trade_scheduler(stop_event):
     log.info(f"Scheduler started — fires at {TRADE_HOUR:02d}:00 UTC ({TRADE_HOUR+3:02d}:00 EAT)")
@@ -435,15 +423,54 @@ def trade_scheduler(stop_event):
     log.info("Scheduler stopped")
 
 def start_scheduler():
-    global _scheduler_started
+    """
+    Start the scheduler thread.
+    Uses file-based locking to ensure only one Gunicorn worker runs it.
+    """
+    global _scheduler_started, _scheduler_holder
+    
     with _scheduler_lock:
         if _scheduler_started:
             return
+        
+        # Try to acquire scheduler lock
+        if not _can_acquire_scheduler_lock():
+            log.info(f"[PID {os.getpid()}] Another worker holds the scheduler lock — skipping")
+            return
+        
         _scheduler_started = True
+        _scheduler_holder = os.getpid()
         t = threading.Thread(target=trade_scheduler, args=(_scheduler_stop,),
                              daemon=True, name="TradeScheduler")
         t.start()
-        log.info("TradeScheduler thread launched ✓")
+        log.info(f"[PID {os.getpid()}] TradeScheduler thread launched ✓")
+
+def _can_acquire_scheduler_lock():
+    """
+    Use a lock file in /tmp to ensure only one Gunicorn worker runs the scheduler.
+    Returns True if this process should run the scheduler, False otherwise.
+    """
+    lock_file = "/tmp/crown_markets_scheduler.lock"
+    
+    try:
+        import fcntl
+        # Try to create and lock the file
+        f = open(lock_file, "w")
+        try:
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            # Successfully locked
+            f.write(f"{os.getpid()}\n{datetime.datetime.utcnow().isoformat()}")
+            f.flush()
+            log.info(f"[PID {os.getpid()}] Acquired scheduler lock")
+            return True
+        except (IOError, OSError):
+            # Lock already held by another process
+            f.close()
+            return False
+    except Exception as e:
+        log.warning(f"Lock check failed (will still try to start): {e}")
+        # Fallback: try to start anyway (better than not running at all)
+        return True
 
 # ── REFERRAL ENGINE ───────────────────────────────────────────────────────────
 def process_referral_commission(tx_id, user_id, amount_usd):
