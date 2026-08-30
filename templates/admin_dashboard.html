@@ -324,6 +324,7 @@
             <option value="OPEN">Open</option>
             <option value="CLOSED">Closed</option>
           </select>
+          <button class="btn btn-primary" style="margin-left:auto;" onclick="runTradesNow()">▶ Run Trades Now</button>
         </div>
         <div id="tradeList" class="loading">Loading...</div>
       </div>
@@ -720,6 +721,36 @@ async function loadTrades() {
   });
   html += '</tbody></table>';
   setHTML('tradeList', html);
+}
+
+// RUN TRADES NOW
+async function runTradesNow() {
+  const btn = event.target;
+  btn.disabled = true;
+  btn.textContent = '⏳ Running...';
+  
+  try {
+    const d = await post('/api/admin/trade/run', {});
+    if (!d.success) { 
+      showError(d.error); 
+      btn.disabled = false;
+      btn.textContent = '▶ Run Trades Now';
+      return; 
+    }
+    showSuccess('Trades running! Refreshing list...');
+    
+    // Wait a moment then refresh
+    setTimeout(() => {
+      loadTrades();
+      loadStats();
+      btn.disabled = false;
+      btn.textContent = '▶ Run Trades Now';
+    }, 1500);
+  } catch (e) {
+    showError('Failed to run trades: ' + e.message);
+    btn.disabled = false;
+    btn.textContent = '▶ Run Trades Now';
+  }
 }
 
 // ADJUST BALANCE / DEPOSITS / WITHDRAWALS
