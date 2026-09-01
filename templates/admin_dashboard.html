@@ -120,6 +120,8 @@
     .modal h3 { background:linear-gradient(135deg, var(--primary-gold), var(--gold-bright)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; margin-bottom:18px; font-size:15px; }
     .modal-btns { display:flex; gap:10px; margin-top:18px; justify-content:flex-end; }
     
+    .action-btns { display:flex; gap:8px; flex-wrap:wrap; }
+    
     @media(max-width:900px) { 
       .sidebar { width:200px; }
       .grid-2 { grid-template-columns:1fr; }
@@ -477,6 +479,29 @@
   </div>
 </div>
 
+<!-- DELETE CLIENT MODAL -->
+<div class="modal-overlay" id="deleteClientModal">
+  <div class="modal">
+    <h3>🗑️ Delete Client</h3>
+    <div style="background:rgba(248,113,113,0.1);border:1px solid rgba(248,113,113,0.3);border-radius:8px;padding:14px;margin-bottom:14px;font-size:13px;">
+      <strong style="color:#fca5a5;">⚠️ WARNING: This action cannot be undone!</strong>
+      <p style="margin-top:10px; color:#d1d5db;">All data for <strong id="deleteClientName"></strong> will be permanently deleted, including:</p>
+      <ul style="margin-top:8px; margin-left:20px; color:#9ca3af;">
+        <li>Account balance</li>
+        <li>Transaction history</li>
+        <li>Trade records</li>
+        <li>Referral data</li>
+      </ul>
+    </div>
+    <input type="hidden" id="deleteClientId">
+    <div class="alert alert-error" id="deleteClientErr"></div>
+    <div class="modal-btns">
+      <button class="btn btn-sm" style="background:rgba(107,114,128,0.2);color:#d1d5db;" onclick="closeModal('deleteClientModal')">Cancel</button>
+      <button class="btn btn-sm btn-danger" onclick="confirmDeleteClient()">Yes, Delete Permanently</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const api  = (url,opts={}) => fetch(url,{credentials:'same-origin',...opts}).then(r=>r.json());
 const post = (u,b) => api(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});
@@ -652,7 +677,7 @@ function renderPendingWithdrawals(txData) {
   setHTML('pendingWdrList', html);
 }
 
-// CLIENTS
+// CLIENTS (WITH DELETE BUTTON)
 function renderClients(clients) {
   const el = document.getElementById('clientList');
   if (!clients || !clients.length) {
@@ -662,7 +687,7 @@ function renderClients(clients) {
   let html = `<table class="tbl"><thead><tr><th>Name</th><th>Email</th><th>Balance</th><th>Equity</th><th>Deposits</th><th>Withdrawals</th><th>Profit</th><th>Ref Earned</th><th>Days Active</th><th>Actions</th></tr></thead><tbody>`;
   clients.forEach(c => {
     storeClient(c);
-    html += `<tr><td><strong>${escHtml(c.name || '—')}</strong></td><td style="font-size:11px;color:#6b7280;">${escHtml(c.email || '—')}</td><td style="color:var(--accent-green);font-weight:bold;">${fmtD(c.balance || 0)}</td><td style="color:var(--primary-gold);">${fmtD(c.equity || 0)}</td><td>${fmtD(c.total_deposits || 0)}</td><td style="color:var(--accent-red);">${fmtD(c.total_withdrawals || 0)}</td><td>${fmtD(c.total_profit || 0)}</td><td style="color:var(--primary-gold);">${fmtD(c.total_ref_earned || 0)}</td><td style="text-align:center;">${c.days_active || 0}</td><td><button class="btn-sm" style="background:rgba(212, 175, 55, 0.2);color:var(--primary-gold);" onclick="openEditClientModal('${c.id}')">✏️ Edit</button></td></tr>`;
+    html += `<tr><td><strong>${escHtml(c.name || '—')}</strong></td><td style="font-size:11px;color:#6b7280;">${escHtml(c.email || '—')}</td><td style="color:var(--accent-green);font-weight:bold;">${fmtD(c.balance || 0)}</td><td style="color:var(--primary-gold);">${fmtD(c.equity || 0)}</td><td>${fmtD(c.total_deposits || 0)}</td><td style="color:var(--accent-red);">${fmtD(c.total_withdrawals || 0)}</td><td>${fmtD(c.total_profit || 0)}</td><td style="color:var(--primary-gold);">${fmtD(c.total_ref_earned || 0)}</td><td style="text-align:center;">${c.days_active || 0}</td><td><div class="action-btns"><button class="btn-sm" style="background:rgba(212, 175, 55, 0.2);color:var(--primary-gold);" onclick="openEditClientModal('${c.id}')">✏️ Edit</button><button class="btn-sm btn-danger" onclick="openDeleteClientModal('${c.id}', '${escHtml(c.name)}')">🗑️ Delete</button></div></td></tr>`;
   });
   html += '</tbody></table>';
   setHTML(el, html);
@@ -723,7 +748,7 @@ async function loadTrades() {
   setHTML('tradeList', html);
 }
 
-// RUN TRADES NOW
+// RUN TRADES NOW (FIX #1 - Now waits for completion)
 async function runTradesNow() {
   const btn = event.target;
   btn.disabled = true;
@@ -737,15 +762,12 @@ async function runTradesNow() {
       btn.textContent = '▶ Run Trades Now';
       return; 
     }
-    showSuccess('Trades running! Refreshing list...');
+    showSuccess('Trades completed!');
     
-    // Wait a moment then refresh
-    setTimeout(() => {
-      loadTrades();
-      loadStats();
-      btn.disabled = false;
-      btn.textContent = '▶ Run Trades Now';
-    }, 1500);
+    // Refresh data immediately since it's synchronous now
+    await refreshData();
+    btn.disabled = false;
+    btn.textContent = '▶ Run Trades Now';
   } catch (e) {
     showError('Failed to run trades: ' + e.message);
     btn.disabled = false;
@@ -755,9 +777,6 @@ async function runTradesNow() {
 
 // ADJUST BALANCE / DEPOSITS / WITHDRAWALS
 const adjustFieldLabels = { balance: 'Balance', equity: 'Equity', total_deposits: 'Total Deposits', total_withdrawals: 'Total Withdrawals', total_profit: 'Trade Profit', total_ref_earned: 'Referral Earnings' };
-
-// Fields that create a *real* transaction record (deposit/withdrawal) instead of
-// just nudging the balance/equity ledger directly.
 const TX_CREATING_FIELDS = ['total_deposits', 'total_withdrawals'];
 
 function populateAdjustClients() {
@@ -817,7 +836,6 @@ async function submitAdjust() {
     d = await post(`/api/admin/client/${uid}/create-withdrawal-tx`, { amount, method, note });
 
   } else {
-    // balance / equity / total_profit / total_ref_earned — direct ledger nudge, unchanged
     d = await post(`/api/admin/client/${uid}/adjust`, { amount, note });
   }
 
@@ -878,6 +896,30 @@ function openEditClientModal(uid) {
   document.getElementById('editClientErr').classList.remove('show');
   document.getElementById('editClientOk').classList.remove('show');
   document.getElementById('editClientModal').classList.add('show');
+}
+
+// FIX #2: DELETE CLIENT MODAL AND FUNCTION
+function openDeleteClientModal(uid, name) {
+  const c = _clientMap[uid];
+  if (!c) return;
+  document.getElementById('deleteClientId').value = uid;
+  document.getElementById('deleteClientName').textContent = name;
+  document.getElementById('deleteClientErr').textContent = '';
+  document.getElementById('deleteClientErr').classList.remove('show');
+  document.getElementById('deleteClientModal').classList.add('show');
+}
+
+async function confirmDeleteClient() {
+  const uid = document.getElementById('deleteClientId').value;
+  const d = await post(`/api/admin/client/${uid}/delete`, { confirm: true });
+  if (!d.success) { 
+    document.getElementById('deleteClientErr').textContent = '✗ ' + d.error;
+    document.getElementById('deleteClientErr').classList.add('show');
+    return; 
+  }
+  closeModal('deleteClientModal');
+  showSuccess(d.data.message);
+  await refreshData();
 }
 
 function closeModal(id) { document.getElementById(id).classList.remove('show'); }
