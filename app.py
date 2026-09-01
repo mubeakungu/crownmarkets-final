@@ -402,7 +402,7 @@ def run_daily_trades():
 _scheduler_lock    = threading.Lock()
 _scheduler_started = False
 _scheduler_stop    = threading.Event()
-_scheduler_holder  = None  # Track which worker has the lock
+_scheduler_holder  = None
 
 def trade_scheduler(stop_event):
     log.info(f"Scheduler started — fires at {TRADE_HOUR:02d}:00 UTC ({TRADE_HOUR+3:02d}:00 EAT)")
@@ -423,17 +423,12 @@ def trade_scheduler(stop_event):
     log.info("Scheduler stopped")
 
 def start_scheduler():
-    """
-    Start the scheduler thread.
-    Uses file-based locking to ensure only one Gunicorn worker runs it.
-    """
     global _scheduler_started, _scheduler_holder
     
     with _scheduler_lock:
         if _scheduler_started:
             return
         
-        # Try to acquire scheduler lock
         if not _can_acquire_scheduler_lock():
             log.info(f"[PID {os.getpid()}] Another worker holds the scheduler lock — skipping")
             return
@@ -446,35 +441,26 @@ def start_scheduler():
         log.info(f"[PID {os.getpid()}] TradeScheduler thread launched ✓")
 
 def _can_acquire_scheduler_lock():
-    """
-    Use a lock file in /tmp to ensure only one Gunicorn worker runs the scheduler.
-    Returns True if this process should run the scheduler, False otherwise.
-    """
     lock_file = "/tmp/crown_markets_scheduler.lock"
     
     try:
         import fcntl
-        # Try to create and lock the file
         f = open(lock_file, "w")
         try:
             fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            # Successfully locked
             f.write(f"{os.getpid()}\n{datetime.datetime.utcnow().isoformat()}")
             f.flush()
             log.info(f"[PID {os.getpid()}] Acquired scheduler lock")
             return True
         except (IOError, OSError):
-            # Lock already held by another process
             f.close()
             return False
     except Exception as e:
         log.warning(f"Lock check failed (will still try to start): {e}")
-        # Fallback: try to start anyway (better than not running at all)
         return True
 
 # ── REFERRAL ENGINE ───────────────────────────────────────────────────────────
 def process_referral_commission(tx_id, user_id, amount_usd):
-    """Track referral (even if commission is 0%) and award commission if enabled."""
     if amount_usd < REFERRAL_MIN_DEPOSIT:
         return
     
@@ -485,7 +471,6 @@ def process_referral_commission(tx_id, user_id, amount_usd):
     if not user or not user["referred_by"]:
         cur.close(); conn.close(); return
 
-    # Check if referral already exists for this user (skip duplicates)
     cur.execute("SELECT id FROM referrals WHERE referred_id=%s", (user_id,))
     if cur.fetchone():
         cur.close(); conn.close(); return
@@ -495,7 +480,6 @@ def process_referral_commission(tx_id, user_id, amount_usd):
     if not referrer:
         cur.close(); conn.close(); return
 
-    # Always create referral record (for tracking), but only award commission if enabled
     commission = round(amount_usd * REFERRAL_COMMISSION_PCT, 2)
     try:
         cur.execute(
@@ -504,7 +488,6 @@ def process_referral_commission(tx_id, user_id, amount_usd):
             (_uid(), referrer["id"], user_id, commission, tx_id, _now())
         )
         
-        # Only update ref_balance if commission > 0
         if commission > 0:
             cur.execute(
                 "UPDATE accounts SET ref_balance=ref_balance+%s WHERE user_id=%s",
@@ -525,7 +508,6 @@ def process_referral_commission(tx_id, user_id, amount_usd):
 # ── DARAJA STK PUSH ENGINE ────────────────────────────────────────────────────
 
 def mpesa_get_token():
-    """Get OAuth access token from Daraja."""
     try:
         creds = base64.b64encode(
             f"{MPESA_CONSUMER_KEY}:{MPESA_CONSUMER_SECRET}".encode()
@@ -542,7 +524,6 @@ def mpesa_get_token():
         return None
 
 def mpesa_format_phone(phone):
-    """Normalise phone to 2547XXXXXXXX format."""
     phone = phone.strip().replace(" ", "").replace("-", "")
     if phone.startswith("+"):
         phone = phone[1:]
@@ -553,11 +534,6 @@ def mpesa_format_phone(phone):
     return phone
 
 def mpesa_stk_push(phone, amount_kes, account_ref, description):
-    """
-    Initiate STK Push.
-    Returns (True, checkout_request_id) or (False, error_msg).
-    amount_kes must be an integer (minimum 1).
-    """
     token = mpesa_get_token()
     if not token:
         return False, "Could not connect to M-Pesa. Please try again."
@@ -718,13 +694,9 @@ def api_logout():
     session.clear()
     return ok()
 
-# ── AUTH: FORGOT PASSWORD (v5.13) ─────────────────────────────────────────────
+# ── AUTH: FORGOT PASSWORD ─────────────────────────────────────────────────────
 @app.route("/api/auth/forgot-password", methods=["POST"])
 def api_forgot_password():
-    """
-    Self-service password reset for clients.
-    Body: { email, phone, pin, new_password }
-    """
     d            = request.json or {}
     email        = d.get("email","").lower().strip()
     phone        = d.get("phone","").strip()
@@ -1015,7 +987,7 @@ def client_profit_history():
     cur.close(); conn.close()
     return ok([dict(r) for r in rows])
 
-# ── NOTIFICATIONS (v5.12) ─────────────────────────────────────────────────────
+# ── NOTIFICATIONS ─────────────────────────────────────────────────────────────
 @app.route("/api/client/notifications")
 @login_required
 def client_notifications():
@@ -1250,7 +1222,6 @@ def mpesa_callback():
 @app.route("/api/client/deposit/pending", methods=["POST"])
 @login_required
 def client_deposit_pending():
-    """USDT manual deposit only — M-Pesa uses /api/client/mpesa/stk-push."""
     d    = request.json or {}
     uid  = session["user_id"]
     amt  = float(d.get("amount", 0))
@@ -1555,7 +1526,6 @@ def admin_adjust_balance(uid):
 @app.route("/api/admin/client/<uid>/create-deposit-tx", methods=["POST"])
 @admin_required
 def admin_create_deposit_transaction(uid):
-    """Manually create a deposit transaction and update balance."""
     d      = request.json or {}
     amount = float(d.get("amount", 0))
     method = d.get("method", "MANUAL").upper()
@@ -1581,7 +1551,6 @@ def admin_create_deposit_transaction(uid):
     ref = "DEP-" + secrets.token_hex(4).upper()
     now = _now()
     
-    # Create completed deposit transaction
     cur.execute(
         "INSERT INTO transactions(id,user_id,account_id,type,method,amount_usd,"
         "reference,status,note,created_at,completed_at) "
@@ -1589,7 +1558,6 @@ def admin_create_deposit_transaction(uid):
         (_uid(), uid, a["id"], method, amount, ref, note, now, now)
     )
     
-    # Update balance and equity
     cur.execute(
         "UPDATE accounts SET balance=balance+%s, equity=equity+%s WHERE user_id=%s",
         (amount, amount, uid)
@@ -1604,7 +1572,6 @@ def admin_create_deposit_transaction(uid):
 @app.route("/api/admin/client/<uid>/create-withdrawal-tx", methods=["POST"])
 @admin_required
 def admin_create_withdrawal_transaction(uid):
-    """Manually create a withdrawal transaction and deduct from balance."""
     d      = request.json or {}
     amount = float(d.get("amount", 0))
     method = d.get("method", "MANUAL").upper()
@@ -1634,7 +1601,6 @@ def admin_create_withdrawal_transaction(uid):
     ref = "WD-" + secrets.token_hex(4).upper()
     now = _now()
     
-    # Create completed withdrawal transaction
     cur.execute(
         "INSERT INTO transactions(id,user_id,account_id,type,method,amount_usd,"
         "reference,status,note,created_at,completed_at) "
@@ -1642,7 +1608,6 @@ def admin_create_withdrawal_transaction(uid):
         (_uid(), uid, a["id"], method, amount, ref, note, now, now)
     )
     
-    # Deduct from balance and equity
     cur.execute(
         "UPDATE accounts SET balance=balance-%s, equity=equity-%s WHERE user_id=%s",
         (amount, amount, uid)
@@ -1682,6 +1647,52 @@ def admin_edit_client(uid):
         cur.close(); conn.close()
         return err("That email is already used by another account", 409)
 
+# ── FIX #2: DELETE CLIENT ENDPOINT (NEW) ──────────────────────────────────────
+@app.route("/api/admin/client/<uid>/delete", methods=["POST"])
+@admin_required
+def admin_delete_client(uid):
+    """
+    Delete a client and all associated data.
+    WARNING: This is irreversible!
+    """
+    d = request.json or {}
+    confirm = d.get("confirm", False)
+    
+    if not confirm:
+        return err("Pass confirm=true to confirm deletion", 400)
+    
+    conn = get_db()
+    cur = conn.cursor()
+    
+    # Get user info before deleting
+    cur.execute("SELECT id, name, email FROM users WHERE id=%s AND role='client'", (uid,))
+    u = cur.fetchone()
+    if not u:
+        cur.close(); conn.close()
+        return err("Client not found", 404)
+    
+    try:
+        # Delete in correct order (foreign key constraints)
+        cur.execute("DELETE FROM notifications WHERE user_id=%s", (uid,))
+        cur.execute("DELETE FROM daily_trade_log WHERE user_id=%s", (uid,))
+        cur.execute("DELETE FROM trades WHERE user_id=%s", (uid,))
+        cur.execute("DELETE FROM transactions WHERE user_id=%s", (uid,))
+        cur.execute("DELETE FROM referrals WHERE referrer_id=%s OR referred_id=%s", (uid, uid))
+        cur.execute("DELETE FROM accounts WHERE user_id=%s", (uid,))
+        cur.execute("DELETE FROM users WHERE id=%s", (uid,))
+        
+        conn.commit()
+        log.info(f"Client deleted: {u['email']} (ID: {uid})")
+        return ok({"message": f"Client {u['name']} ({u['email']}) permanently deleted"})
+        
+    except Exception as e:
+        conn.rollback()
+        log.error(f"Delete client failed: {e}")
+        return err(f"Delete failed: {str(e)}", 500)
+    finally:
+        cur.close()
+        conn.close()
+
 @app.route("/api/admin/client/<uid>/reset-password", methods=["POST"])
 @admin_required
 def admin_reset_client_password(uid):
@@ -1717,6 +1728,18 @@ def admin_reset_client_password(uid):
 
     log.info(f"Admin reset password for client {u['email']}")
     return ok({"message": f"Password reset for {u['name']}"})
+
+# ── FIX #1: TRADE RUN ENDPOINT (FIXED - SYNCHRONOUS) ──────────────────────────
+@app.route("/api/admin/trade/run", methods=["POST"])
+@admin_required
+def admin_run_trades():
+    """Run daily trades synchronously and return results."""
+    try:
+        run_daily_trades()  # Call directly instead of threading
+        return ok({"message": f"Daily trades completed — ${DAILY_PROFIT_USD} per eligible client"})
+    except Exception as e:
+        log.error(f"Trade run failed: {e}")
+        return err(f"Trade execution error: {str(e)}")
 
 @app.route("/api/admin/trade/run-single", methods=["POST"])
 @admin_required
@@ -1812,12 +1835,6 @@ def admin_run_single_client_trade():
         "profit": client_profit,
         "total_deposit": c["total_deposit"],
     })
-
-@app.route("/api/admin/trade/run", methods=["POST"])
-@admin_required
-def admin_run_trades():
-    threading.Thread(target=run_daily_trades, daemon=True).start()
-    return ok({"message": f"Daily trades triggered — ${DAILY_PROFIT_USD} per eligible client"})
 
 @app.route("/api/admin/trade/log")
 @admin_required
