@@ -1,6 +1,8 @@
 <!DOCTYPE html>
 <html>
 <head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Crown Markets — Trading Dashboard</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
   <style>
@@ -38,12 +40,17 @@
     .main-container { flex:1; display:flex; flex-direction:column; overflow:hidden; }
 
     .navbar { background:linear-gradient(135deg, var(--card-bg) 0%, #12162e 100%); padding:16px 40px; border-bottom:1px solid var(--border-subtle); display:flex; justify-content:space-between; align-items:center; box-shadow:0 2px 8px rgba(0,0,0,0.3); }
+    .navbar-left { display:flex; align-items:center; gap:20px; }
+    .mobile-menu-btn { display:none; background:none; border:none; color:var(--text-light); font-size:24px; cursor:pointer; padding:8px; }
     .nav-user { font-size:13px; color:var(--text-muted); display:flex; align-items:center; gap:15px; }
     .bell-btn { background:none; border:none; color:var(--text-muted); font-size:18px; cursor:pointer; padding:6px 10px; border-radius:6px; transition:all 0.2s; }
     .bell-btn:hover { background:rgba(255,255,255,0.05); color:var(--text-light); }
     .bell-dot { position:absolute; width:8px; height:8px; background:#ef4444; border-radius:50%; display:none; margin-top:-8px; margin-left:12px; }
     .bell-dot.show { display:block; animation:pulse 2s infinite; }
     @keyframes pulse { 0%, 100% { opacity:1; } 50% { opacity:0.5; } }
+
+    .sidebar-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:999; }
+    .sidebar-overlay.show { display:block; }
 
     .btn { padding:10px 20px; border:none; border-radius:8px; cursor:pointer; font-size:13px; font-weight:600; transition:all 0.2s; }
     .btn-danger { background:rgba(239,68,68,0.2); color:#fca5a5; border:1px solid rgba(239,68,68,0.4); }
@@ -112,17 +119,73 @@
     .symbol-tab.active { background:rgba(212,175,55,0.2); color:var(--gold-bright); border:1px solid rgba(212,175,55,0.3); }
     .symbol-tab:not(.active) { background:transparent; color:var(--text-muted); border:1px solid rgba(148,163,184,0.2); }
 
-    @media(max-width:900px) {
+    .tbl-wrapper { overflow-x:auto; }
+
+    @media(max-width:1024px) {
       .sidebar { width:200px; }
       .grid-2 { grid-template-columns:1fr; }
-      .content { padding:20px; }
+      .stats-grid { grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); }
+    }
+
+    @media(max-width:768px) {
+      body { flex-direction:column; }
+      .sidebar {
+        position:fixed;
+        left:-260px;
+        top:0;
+        width:260px;
+        height:100vh;
+        z-index:1001;
+        transition:left 0.3s ease;
+      }
+      .sidebar.active { left:0; }
+      .sidebar-overlay { z-index:999; }
+      .mobile-menu-btn { display:block; }
+      .main-container { width:100%; }
+      .navbar { padding:12px 20px; gap:10px; }
+      .navbar-left { gap:15px; }
+      .nav-user { font-size:12px; gap:10px; }
+      .content { padding:20px; font-size:13px; }
+      .page-title { font-size:22px; }
+      .page-subtitle { font-size:12px; }
+      .stats-grid { grid-template-columns:repeat(2, 1fr); gap:12px; }
+      .stat-card { padding:16px; }
+      .stat-value { font-size:20px; }
+      .stat-label { font-size:10px; }
+      .card { padding:16px; margin-bottom:16px; }
+      .card-title { font-size:14px; }
+      .tbl { font-size:11px; }
+      .tbl th, .tbl td { padding:8px; }
+      .btn { padding:8px 16px; font-size:12px; }
+      .form-group input, .form-group select { padding:8px 10px; font-size:12px; }
+      .notif-panel { width:90vw; right:5vw; }
+      .chart-container { height:180px; }
+    }
+
+    @media(max-width:480px) {
+      .content { padding:15px; }
+      .page-title { font-size:20px; margin-bottom:6px; }
+      .stats-grid { grid-template-columns:1fr; gap:10px; }
+      .stat-value { font-size:18px; }
+      .navbar { flex-wrap:wrap; padding:12px 15px; }
+      .nav-user { width:100%; margin-top:10px; }
+      .tbl { font-size:10px; }
+      .tbl th, .tbl td { padding:6px; }
+      .btn { padding:8px 14px; font-size:11px; }
+      .form-group input, .form-group select { font-size:11px; padding:8px; }
+      .card-title { font-size:13px; }
+      .notif-panel { width:95vw; right:2.5vw; top:60px; }
+      .chart-container { height:150px; }
+      .grid-2 { gap:15px; }
     }
   </style>
 </head>
 <body>
 
+<div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
+
 <!-- SIDEBAR -->
-<div class="sidebar">
+<div class="sidebar" id="sidebar">
   <div class="sidebar-header">
     <img src="/static/logo.png" alt="" class="sidebar-logo">
     <div class="sidebar-brand">CROWN MARKETS</div>
@@ -167,7 +230,10 @@
 <!-- MAIN CONTENT -->
 <div class="main-container">
   <div class="navbar">
-    <div style="font-weight:600; font-size:14px;" id="pageHeader">Dashboard</div>
+    <div class="navbar-left">
+      <button class="mobile-menu-btn" id="menuBtn" onclick="toggleSidebar()">☰</button>
+      <div style="font-weight:600; font-size:14px;" id="pageHeader">Dashboard</div>
+    </div>
     <div class="nav-user">
       <span id="navUserName">—</span>
     </div>
@@ -219,7 +285,7 @@
         <div class="card">
           <div class="card-title">📈 Live Price</div>
           <div class="card-subtitle">Real-time market data</div>
-          <div style="display:flex; gap:8px; margin-bottom:12px;">
+          <div style="display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap;">
             <button class="symbol-tab active" data-symbol="BTCUSDT" onclick="switchSymbol(this,'BTCUSDT')">BTC</button>
             <button class="symbol-tab" data-symbol="ETHUSDT" onclick="switchSymbol(this,'ETHUSDT')">ETH</button>
             <button class="symbol-tab" data-symbol="BNBUSDT" onclick="switchSymbol(this,'BNBUSDT')">BNB</button>
@@ -259,7 +325,9 @@
 
       <div class="card">
         <div class="card-title">My Trades</div>
-        <div id="tradeList" class="loading">Loading...</div>
+        <div class="tbl-wrapper">
+          <div id="tradeList" class="loading">Loading...</div>
+        </div>
       </div>
     </div>
 
@@ -293,7 +361,7 @@
           <div class="card-title">Withdraw Funds</div>
           <div class="alert alert-success" id="withdrawSuccess"></div>
           <div class="alert alert-error" id="withdrawError"></div>
-          <div class="form-group"><label>Amount (USD)</label><input type="number" id="withdrawAmount" placeholder="Minimum 30$"></div>
+          <div class="form-group"><label>Amount (USD)</label><input type="number" id="withdrawAmount" placeholder="Minimum $30"></div>
           <div class="form-group"><label>Network</label>
             <select id="withdrawNetwork">
               <option value="TRC20">USDT — TRC20</option>
@@ -314,7 +382,9 @@
       <div class="page-subtitle">All your transaction history</div>
 
       <div class="card">
-        <div id="txList" class="loading">Loading...</div>
+        <div class="tbl-wrapper">
+          <div id="txList" class="loading">Loading...</div>
+        </div>
       </div>
     </div>
 
@@ -329,12 +399,12 @@
         <div style="background:rgba(212,175,55,0.08); border:1px solid rgba(212,175,55,0.3); border-radius:8px; padding:16px; margin-bottom:16px;">
           <div style="font-size:11px; color:var(--text-muted); margin-bottom:6px;">Your referral code</div>
           <div style="font-size:18px; font-weight:700; color:var(--gold-bright); letter-spacing:2px;" id="refCode">—</div>
-          <button class="btn btn-primary" style="margin-top:10px;" onclick="copyRefCode()">Copy Code</button>
+          <button class="btn btn-primary" style="margin-top:10px; width:100%;" onclick="copyRefCode()">Copy Code</button>
         </div>
 
         <div style="background:rgba(212,175,55,0.08); border:1px solid rgba(212,175,55,0.3); border-radius:8px; padding:16px; margin-bottom:16px;">
           <div style="font-size:11px; color:var(--text-muted); margin-bottom:6px;">Your referral link</div>
-          <input type="text" id="refLink" value="—" readonly onclick="this.select()" style="width:100%; background:transparent; border:none; color:var(--gold-bright); font-family:monospace; font-size:12px; padding:0; cursor:pointer; margin-bottom:10px;">
+          <input type="text" id="refLink" value="—" readonly onclick="this.select()" style="width:100%; background:transparent; border:none; color:var(--gold-bright); font-family:monospace; font-size:12px; padding:0; cursor:pointer; margin-bottom:10px; overflow:auto;">
           <button class="btn btn-primary" style="width:100%;" onclick="copyRefLink()">Copy Link</button>
         </div>
 
@@ -352,13 +422,15 @@
           </div>
           <div class="form-group"><label>Wallet Address</label><input type="text" id="refAddress" placeholder="Your wallet address"></div>
           <div class="form-group"><label>PIN</label><input type="password" id="refPin" placeholder="6-digit PIN" maxlength="6"></div>
-          <button class="btn btn-primary" style="width:100%;" onclick="submitRefWithdraw()">Withdraw </button>
+          <button class="btn btn-primary" style="width:100%;" onclick="submitRefWithdraw()">Withdraw</button>
         </div>
       </div>
 
       <div class="card">
         <div class="card-title">Referral History</div>
-        <div id="referralList" class="loading" style="margin-top:12px;">Loading...</div>
+        <div class="tbl-wrapper">
+          <div id="referralList" class="loading" style="margin-top:12px;">Loading...</div>
+        </div>
       </div>
     </div>
 
@@ -417,7 +489,21 @@ let currentSymbol = 'BTCUSDT';
 let priceHistory = { BTCUSDT: [], ETHUSDT: [], BNBUSDT: [] };
 let priceFetchFailCount = 0;
 
-// PAGE NAVIGATION - FIXED
+function toggleSidebar() {
+  const sidebar = document.getElementById('sidebar');
+  const overlay = document.getElementById('sidebarOverlay');
+  sidebar.classList.toggle('active');
+  overlay.classList.toggle('show');
+}
+
+function closeSidebarOnMobile() {
+  if (window.innerWidth <= 768) {
+    document.getElementById('sidebar').classList.remove('active');
+    document.getElementById('sidebarOverlay').classList.remove('show');
+  }
+}
+
+// PAGE NAVIGATION
 function openPage(pageName, el) {
   const titles = {
     dashboard: 'Dashboard',
@@ -437,6 +523,8 @@ function openPage(pageName, el) {
   if (pageEl) pageEl.classList.add('active');
   if (el) el.classList.add('active');
   if (headerEl) headerEl.textContent = titles[pageName];
+
+  closeSidebarOnMobile();
 
   if (pageName === 'trading') loadTrades();
   if (pageName === 'transactions') loadTransactions();
