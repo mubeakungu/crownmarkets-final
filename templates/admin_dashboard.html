@@ -43,10 +43,15 @@
     .main-container { flex:1; display:flex; flex-direction:column; overflow:hidden; }
     
     .navbar { background:linear-gradient(135deg, #151a27 0%, #0f1419 100%); padding:16px 40px; border-bottom:1px solid var(--border-subtle); display:flex; justify-content:space-between; align-items:center; box-shadow:0 2px 8px rgba(0,0,0,0.3); }
+    .navbar-left { display:flex; align-items:center; gap:20px; }
+    .mobile-menu-btn { display:none; background:none; border:none; color:var(--text-light); font-size:24px; cursor:pointer; padding:8px; }
     .nav-brand { font-size:14px; font-weight:600; color:var(--text-light); }
     .sched-pill { display:inline-flex; align-items:center; gap:6px; font-size:11px; padding:6px 12px; border-radius:20px; border:1px solid var(--border-subtle); color:var(--text-muted); background:rgba(212, 175, 55, 0.05); }
     .sched-dot { width:7px; height:7px; border-radius:50%; background:rgba(212, 175, 55, 0.4); }
     .sched-dot.on { background:var(--accent-green); box-shadow:0 0 6px var(--accent-green); }
+
+    .sidebar-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:999; }
+    .sidebar-overlay.show { display:block; }
     
     /* CONTENT AREA */
     .content { flex:1; overflow-y:auto; padding:30px 40px; }
@@ -121,18 +126,77 @@
     .modal-btns { display:flex; gap:10px; margin-top:18px; justify-content:flex-end; }
     
     .action-btns { display:flex; gap:8px; flex-wrap:wrap; }
-    
-    @media(max-width:900px) { 
+
+    .tbl-wrapper { overflow-x:auto; }
+
+    @media(max-width:1024px) { 
       .sidebar { width:200px; }
       .grid-2 { grid-template-columns:1fr; }
-      .content { padding:20px; }
+      .stats-grid { grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); }
+    }
+
+    @media(max-width:768px) {
+      body { flex-direction:column; }
+      .sidebar { 
+        position:fixed; 
+        left:-260px; 
+        top:0; 
+        width:260px; 
+        height:100vh; 
+        z-index:1001; 
+        transition:left 0.3s ease;
+      }
+      .sidebar.active { left:0; }
+      .mobile-menu-btn { display:block; }
+      .main-container { width:100%; }
+      .navbar { padding:12px 20px; }
+      .navbar-left { gap:15px; }
+      .content { padding:20px; font-size:13px; }
+      .page-title { font-size:22px; }
+      .page-subtitle { font-size:12px; }
+      .stats-grid { grid-template-columns:repeat(2, 1fr); gap:12px; }
+      .stat-card { padding:16px; }
+      .stat-value { font-size:20px; }
+      .stat-label { font-size:10px; }
+      .nav-brand { font-size:13px; }
+      .sched-pill { font-size:10px; padding:4px 10px; }
+      .card { padding:16px; margin-bottom:16px; }
+      .card-title { font-size:14px; }
+      .tbl { font-size:11px; }
+      .tbl th, .tbl td { padding:8px; }
+      .btn-sm { padding:6px 10px; font-size:11px; }
+      .form-group input, .form-group select, .form-group textarea { padding:8px 10px; font-size:12px; }
+      .filter-bar { gap:8px; }
+      .action-btns { gap:6px; }
+    }
+
+    @media(max-width:480px) {
+      .content { padding:15px; }
+      .page-title { font-size:20px; margin-bottom:6px; }
+      .stats-grid { grid-template-columns:1fr; gap:10px; }
+      .stat-value { font-size:18px; }
+      .navbar { flex-wrap:wrap; gap:10px; }
+      .sched-pill { font-size:10px; }
+      .tbl { font-size:10px; }
+      .tbl th, .tbl td { padding:6px; }
+      .btn { padding:8px 16px; font-size:12px; }
+      .btn-sm { padding:6px 10px; font-size:10px; }
+      .modal { width:95vw; padding:16px; }
+      .form-group input, .form-group select { font-size:11px; padding:8px; }
+      .card-title { font-size:13px; }
+      .filter-bar { flex-direction:column; }
+      .filter-bar input, .filter-bar select { width:100%; }
+      .action-btns { flex-direction:column; }
+      .action-btns button { width:100%; }
     }
   </style>
 </head>
 <body>
 
+<div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
+
 <!-- SIDEBAR -->
-<div class="sidebar">
+<div class="sidebar" id="sidebar">
   <div class="sidebar-header">
     <div class="sidebar-brand">◆ CROWN MARKETS</div>
     <div class="admin-badge">🔐 ADMIN</div>
@@ -183,7 +247,10 @@
 <!-- MAIN CONTENT -->
 <div class="main-container">
   <div class="navbar">
-    <div class="nav-brand" id="pageHeader">Dashboard</div>
+    <div class="navbar-left">
+      <button class="mobile-menu-btn" id="menuBtn" onclick="toggleSidebar()">☰</button>
+      <div class="nav-brand" id="pageHeader">Dashboard</div>
+    </div>
     <div style="display:flex; align-items:center; gap:20px;">
       <span class="sched-pill" id="schedPill"><span class="sched-dot" id="schedDot"></span><span id="schedText">Scheduler: —</span></span>
     </div>
@@ -251,7 +318,9 @@
       <div class="page-subtitle">Approve or reject incoming deposits</div>
       
       <div class="card">
-        <div id="pendingList" class="loading">Loading...</div>
+        <div class="tbl-wrapper">
+          <div id="pendingList" class="loading">Loading...</div>
+        </div>
       </div>
     </div>
 
@@ -261,7 +330,9 @@
       <div class="page-subtitle">Process outgoing withdrawals</div>
       
       <div class="card">
-        <div id="pendingWdrList" class="loading">Loading...</div>
+        <div class="tbl-wrapper">
+          <div id="pendingWdrList" class="loading">Loading...</div>
+        </div>
       </div>
     </div>
 
@@ -274,7 +345,9 @@
         <div class="filter-bar">
           <input type="text" id="clientSearch" placeholder="Search by name or email..." oninput="filterClients()">
         </div>
-        <div id="clientList" class="loading">Loading...</div>
+        <div class="tbl-wrapper">
+          <div id="clientList" class="loading">Loading...</div>
+        </div>
       </div>
     </div>
 
@@ -300,7 +373,9 @@
             <option value="REJECTED">Rejected</option>
           </select>
         </div>
-        <div id="txList" class="loading">Loading...</div>
+        <div class="tbl-wrapper">
+          <div id="txList" class="loading">Loading...</div>
+        </div>
       </div>
     </div>
 
@@ -310,7 +385,9 @@
       <div class="page-subtitle">All referral transactions</div>
       
       <div class="card">
-        <div id="referralList" class="loading">Loading...</div>
+        <div class="tbl-wrapper">
+          <div id="referralList" class="loading">Loading...</div>
+        </div>
       </div>
     </div>
 
@@ -328,7 +405,9 @@
           </select>
           <button class="btn btn-primary" style="margin-left:auto;" onclick="runTradesNow()">▶ Run Trades Now</button>
         </div>
-        <div id="tradeList" class="loading">Loading...</div>
+        <div class="tbl-wrapper">
+          <div id="tradeList" class="loading">Loading...</div>
+        </div>
       </div>
     </div>
 
@@ -385,7 +464,7 @@
   </div>
 </div>
 
-<!-- APPROVE DEPOSIT MODAL -->
+<!-- MODALS (unchanged structure, just adding modal overlay closes) -->
 <div class="modal-overlay" id="approveModal">
   <div class="modal">
     <h3>✓ Approve Deposit</h3>
@@ -403,7 +482,6 @@
   </div>
 </div>
 
-<!-- REJECT DEPOSIT MODAL -->
 <div class="modal-overlay" id="rejectModal">
   <div class="modal">
     <h3>✗ Reject Deposit</h3>
@@ -419,7 +497,6 @@
   </div>
 </div>
 
-<!-- APPROVE WITHDRAWAL MODAL -->
 <div class="modal-overlay" id="approveWdrModal">
   <div class="modal">
     <h3>✓ Approve Withdrawal</h3>
@@ -437,7 +514,6 @@
   </div>
 </div>
 
-<!-- REJECT WITHDRAWAL MODAL -->
 <div class="modal-overlay" id="rejectWdrModal">
   <div class="modal">
     <h3>✗ Reject Withdrawal</h3>
@@ -453,7 +529,6 @@
   </div>
 </div>
 
-<!-- EDIT CLIENT MODAL -->
 <div class="modal-overlay" id="editClientModal">
   <div class="modal">
     <h3>✏ Edit Client</h3>
@@ -479,7 +554,6 @@
   </div>
 </div>
 
-<!-- DELETE CLIENT MODAL -->
 <div class="modal-overlay" id="deleteClientModal">
   <div class="modal">
     <h3>🗑️ Delete Client</h3>
@@ -526,6 +600,20 @@ function setHTML(el, html) {
   if (el && el.innerHTML !== html) el.innerHTML = html;
 }
 
+function toggleSidebar() {
+  const sidebar = document.getElementById('sidebar');
+  const overlay = document.getElementById('sidebarOverlay');
+  sidebar.classList.toggle('active');
+  overlay.classList.toggle('show');
+}
+
+function closeSidebarOnMobile() {
+  if (window.innerWidth <= 768) {
+    document.getElementById('sidebar').classList.remove('active');
+    document.getElementById('sidebarOverlay').classList.remove('show');
+  }
+}
+
 // PAGE NAVIGATION
 function openPage(pageName, el) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
@@ -537,6 +625,7 @@ function openPage(pageName, el) {
   const titles = { dashboard: 'Dashboard', deposits: 'Pending Deposits', withdrawals: 'Pending Withdrawals', clients: 'Clients', transactions: 'Transactions', referrals: 'Referrals', trades: 'Trades', adjust: 'Adjust Balance' };
   document.getElementById('pageHeader').textContent = titles[pageName];
   activeTab = pageName;
+  closeSidebarOnMobile();
   
   if (pageName === 'deposits') renderPending(allTx);
   if (pageName === 'withdrawals') renderPendingWithdrawals(allTx);
@@ -748,7 +837,7 @@ async function loadTrades() {
   setHTML('tradeList', html);
 }
 
-// RUN TRADES NOW (FIX #1 - Now waits for completion)
+// RUN TRADES NOW
 async function runTradesNow() {
   const btn = event.target;
   btn.disabled = true;
@@ -763,8 +852,6 @@ async function runTradesNow() {
       return; 
     }
     showSuccess('Trades completed!');
-    
-    // Refresh data immediately since it's synchronous now
     await refreshData();
     btn.disabled = false;
     btn.textContent = '▶ Run Trades Now';
@@ -775,7 +862,7 @@ async function runTradesNow() {
   }
 }
 
-// ADJUST BALANCE / DEPOSITS / WITHDRAWALS
+// ADJUST BALANCE
 const adjustFieldLabels = { balance: 'Balance', equity: 'Equity', total_deposits: 'Total Deposits', total_withdrawals: 'Total Withdrawals', total_profit: 'Trade Profit', total_ref_earned: 'Referral Earnings' };
 const TX_CREATING_FIELDS = ['total_deposits', 'total_withdrawals'];
 
@@ -898,7 +985,6 @@ function openEditClientModal(uid) {
   document.getElementById('editClientModal').classList.add('show');
 }
 
-// FIX #2: DELETE CLIENT MODAL AND FUNCTION
 function openDeleteClientModal(uid, name) {
   const c = _clientMap[uid];
   if (!c) return;
