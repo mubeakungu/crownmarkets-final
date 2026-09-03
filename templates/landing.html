@@ -57,7 +57,7 @@
         nav {
             background: rgba(10, 14, 39, 0.95);
             border-bottom: 1px solid var(--primary-gold);
-            padding: 0.8rem 2rem;
+            padding: 0.8rem 1.5rem;
             display: flex;
             justify-content: space-between;
             align-items: center;
@@ -70,12 +70,12 @@
         .nav-left {
             display: flex;
             align-items: center;
-            gap: 1rem;
+            gap: 0.75rem;
         }
 
         .nav-logo {
-            width: 45px;
-            height: 45px;
+            width: 40px;
+            height: 40px;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -83,24 +83,26 @@
             border: 1px solid var(--primary-gold);
             border-radius: 8px;
             box-shadow: 0 0 15px rgba(212, 175, 55, 0.2);
+            flex-shrink: 0;
         }
 
         .nav-logo img {
-            width: 40px;
-            height: 40px;
+            width: 35px;
+            height: 35px;
             object-fit: contain;
         }
 
         .nav-brand {
-            font-size: 1.3rem;
+            font-size: 1rem;
             font-weight: 700;
             color: var(--primary-gold);
-            letter-spacing: 2px;
+            letter-spacing: 1px;
+            white-space: nowrap;
         }
 
         .nav-links {
             display: flex;
-            gap: 2rem;
+            gap: 1.25rem;
             align-items: center;
         }
 
@@ -108,6 +110,7 @@
             color: var(--text-light);
             text-decoration: none;
             transition: color 0.3s ease;
+            font-size: 0.95rem;
         }
 
         .nav-links a:hover {
@@ -115,7 +118,7 @@
         }
 
         .btn {
-            padding: 0.75rem 1.5rem;
+            padding: 0.65rem 1.25rem;
             border: none;
             border-radius: 5px;
             cursor: pointer;
@@ -123,6 +126,7 @@
             transition: all 0.3s ease;
             text-decoration: none;
             display: inline-block;
+            font-size: 0.9rem;
         }
 
         .btn-gold {
@@ -153,57 +157,58 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            min-height: 100vh;
-            padding: 4rem 2rem;
+            min-height: 90vh;
+            padding: 3rem 1.5rem 2rem;
             background: radial-gradient(ellipse at center, rgba(212, 175, 55, 0.08) 0%, transparent 70%);
         }
 
         .hero-content {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 4rem;
+            gap: 3rem;
             align-items: center;
             max-width: 1200px;
             width: 100%;
         }
 
         .hero-text h1 {
-            font-size: 3.5rem;
+            font-size: 2.8rem;
             line-height: 1.2;
-            margin-bottom: 1.5rem;
+            margin-bottom: 1.25rem;
             background: linear-gradient(135deg, #d4af37, #f0d96e);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
-            letter-spacing: -1px;
+            letter-spacing: -0.5px;
         }
 
         .hero-text p {
-            font-size: 1.1rem;
+            font-size: 1rem;
             color: var(--text-muted);
-            margin-bottom: 2rem;
+            margin-bottom: 1.5rem;
             line-height: 1.6;
         }
 
         .tagline {
-            font-size: 1.3rem;
+            font-size: 1.1rem;
             color: var(--primary-gold);
             font-weight: 600;
-            margin-bottom: 2rem;
-            letter-spacing: 1px;
+            margin-bottom: 1.5rem;
+            letter-spacing: 0.5px;
         }
 
         .hero-buttons {
             display: flex;
-            gap: 1.5rem;
-            margin-top: 2rem;
+            gap: 1rem;
+            margin-top: 1.5rem;
+            flex-wrap: wrap;
         }
 
         .hero-image {
             text-align: center;
             animation: float 3s ease-in-out infinite;
             background: linear-gradient(135deg, rgba(212, 175, 55, 0.1), rgba(212, 175, 55, 0.05));
-            padding: 2rem;
+            padding: 1.5rem;
             border: 2px solid rgba(212, 175, 55, 0.3);
             border-radius: 15px;
             box-shadow: 0 0 40px rgba(212, 175, 55, 0.2);
@@ -228,7 +233,7 @@
             overflow: hidden;
             background: rgba(10, 14, 39, 0.75);
             border-bottom: 1px solid rgba(212, 175, 55, 0.3);
-            padding: 0.7rem 0;
+            padding: 0.6rem 0;
             backdrop-filter: blur(4px);
         }
 
@@ -241,27 +246,29 @@
         .ticker-item {
             display: flex;
             align-items: center;
-            gap: 0.5rem;
-            padding: 0 1.75rem;
+            gap: 0.4rem;
+            padding: 0 1.25rem;
             border-right: 1px solid rgba(212, 175, 55, 0.15);
             white-space: nowrap;
-            font-size: 0.9rem;
+            font-size: 0.8rem;
         }
 
         .ticker-symbol {
             color: var(--primary-gold);
             font-weight: 700;
-            letter-spacing: 0.5px;
+            letter-spacing: 0.3px;
         }
 
         .ticker-price {
             color: var(--text-light);
             font-variant-numeric: tabular-nums;
+            font-size: 0.75rem;
         }
 
         .ticker-change {
             font-weight: 600;
             font-variant-numeric: tabular-nums;
+            font-size: 0.75rem;
         }
 
         .ticker-change.up { color: var(--accent-green); }
@@ -274,7 +281,7 @@
 
         /* Features Section */
         .features {
-            padding: 6rem 2rem;
+            padding: 4rem 1.5rem;
             background: rgba(26, 31, 58, 0.75);
             backdrop-filter: blur(2px);
         }
@@ -286,8 +293,8 @@
 
         .features h2 {
             text-align: center;
-            font-size: 2.5rem;
-            margin-bottom: 1rem;
+            font-size: 2rem;
+            margin-bottom: 0.75rem;
             background: linear-gradient(135deg, #d4af37, #f0d96e);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
@@ -297,20 +304,20 @@
         .features-subtitle {
             text-align: center;
             color: var(--text-muted);
-            font-size: 1.1rem;
-            margin-bottom: 4rem;
+            font-size: 1rem;
+            margin-bottom: 2.5rem;
         }
 
         .features-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 2rem;
+            gap: 1.5rem;
         }
 
         .feature-card {
             background: linear-gradient(135deg, rgba(212, 175, 55, 0.05), rgba(212, 175, 55, 0.02));
             border: 1px solid rgba(212, 175, 55, 0.2);
-            padding: 2rem;
+            padding: 1.5rem;
             border-radius: 10px;
             text-align: center;
             transition: all 0.3s ease;
@@ -324,25 +331,26 @@
         }
 
         .feature-icon {
-            font-size: 3rem;
-            margin-bottom: 1rem;
+            font-size: 2.5rem;
+            margin-bottom: 0.75rem;
         }
 
         .feature-card h3 {
             color: var(--primary-gold);
-            font-size: 1.3rem;
+            font-size: 1.1rem;
             margin-bottom: 0.5rem;
-            letter-spacing: 1px;
+            letter-spacing: 0.5px;
         }
 
         .feature-card p {
             color: var(--text-muted);
-            line-height: 1.6;
+            line-height: 1.5;
+            font-size: 0.95rem;
         }
 
         /* Stats Section */
         .stats {
-            padding: 6rem 2rem;
+            padding: 4rem 1.5rem;
             background: rgba(212, 175, 55, 0.08);
             border-top: 2px solid var(--primary-gold);
             border-bottom: 2px solid var(--primary-gold);
@@ -353,25 +361,56 @@
             max-width: 1200px;
             margin: 0 auto;
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 2rem;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 1.5rem;
             text-align: center;
         }
 
         .stat-item h3 {
-            font-size: 2.5rem;
+            font-size: 2rem;
             color: var(--primary-gold);
             margin-bottom: 0.5rem;
         }
 
         .stat-item p {
             color: var(--text-muted);
+            font-size: 0.95rem;
+        }
+
+        /* Mission Section */
+        .mission {
+            padding: 4rem 1.5rem;
+            background: rgba(212, 175, 55, 0.08);
+            border-top: 2px solid var(--primary-gold);
+            border-bottom: 1px solid rgba(212, 175, 55, 0.2);
+            backdrop-filter: blur(2px);
+        }
+
+        .mission-content {
+            max-width: 900px;
+            margin: 0 auto;
+            text-align: center;
+        }
+
+        .mission h2 {
+            font-size: 2rem;
+            margin-bottom: 1.5rem;
+            background: linear-gradient(135deg, #d4af37, #f0d96e);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .mission p {
             font-size: 1rem;
+            color: #d4d4d4;
+            line-height: 1.7;
+            margin-bottom: 1rem;
         }
 
         /* CTA Section */
         .cta {
-            padding: 6rem 2rem;
+            padding: 4rem 1.5rem;
             text-align: center;
             background: radial-gradient(ellipse at center, rgba(212, 175, 55, 0.15) 0%, transparent 70%);
         }
@@ -382,7 +421,7 @@
         }
 
         .cta h2 {
-            font-size: 2.5rem;
+            font-size: 2rem;
             margin-bottom: 1rem;
             background: linear-gradient(135deg, #d4af37, #f0d96e);
             -webkit-background-clip: text;
@@ -392,8 +431,8 @@
 
         .cta p {
             color: var(--text-muted);
-            font-size: 1.1rem;
-            margin-bottom: 2rem;
+            font-size: 1rem;
+            margin-bottom: 1.5rem;
             line-height: 1.6;
         }
 
@@ -408,7 +447,7 @@
         footer {
             background: rgba(10, 14, 39, 0.95);
             border-top: 1px solid var(--primary-gold);
-            padding: 3rem 2rem;
+            padding: 2.5rem 1.5rem;
             text-align: center;
             color: var(--text-muted);
         }
@@ -417,23 +456,25 @@
             max-width: 1200px;
             margin: 0 auto;
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 2rem;
-            margin-bottom: 2rem;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 1.5rem;
             text-align: left;
         }
 
         .footer-section h4 {
             color: var(--primary-gold);
-            margin-bottom: 1rem;
+            margin-bottom: 0.75rem;
+            font-size: 0.95rem;
         }
 
         .footer-section a {
             display: block;
             color: var(--text-muted);
             text-decoration: none;
-            margin-bottom: 0.5rem;
+            margin-bottom: 0.4rem;
             transition: color 0.3s ease;
+            font-size: 0.9rem;
         }
 
         .footer-section a:hover {
@@ -442,7 +483,7 @@
 
         .footer-bottom {
             border-top: 1px solid rgba(212, 175, 55, 0.2);
-            padding-top: 2rem;
+            padding-top: 1.5rem;
             color: var(--text-muted);
         }
 
@@ -450,49 +491,464 @@
             color: var(--primary-gold);
             font-weight: 600;
             letter-spacing: 1px;
-            margin-bottom: 1rem;
+            margin-bottom: 0.5rem;
+            font-size: 0.95rem;
         }
 
-        /* Responsive */
-        @media (max-width: 768px) {
-            .hero-content {
-                grid-template-columns: 1fr;
-            }
-
-            .hero-text h1 {
-                font-size: 2rem;
-            }
-
-            .nav-links {
-                gap: 1rem;
-                font-size: 0.9rem;
-            }
-
-            .hero-buttons {
-                flex-direction: column;
-            }
-
-            .btn {
-                width: 100%;
-                text-align: center;
-            }
-
-            .cta-buttons {
-                flex-direction: column;
-            }
-
-            .cta-buttons .btn {
-                width: 100%;
-            }
-
-            .nav-brand {
-                font-size: 1rem;
-            }
+        .footer-bottom p {
+            font-size: 0.85rem;
+            margin-top: 0.5rem;
         }
 
         /* Glow effect */
         .glow {
             text-shadow: 0 0 10px rgba(212, 175, 55, 0.5);
+        }
+
+        /* ===== RESPONSIVE DESIGN ===== */
+
+        /* Tablet: 769px - 1024px */
+        @media (max-width: 1024px) {
+            .hero-content {
+                gap: 2rem;
+            }
+
+            .hero-text h1 {
+                font-size: 2.2rem;
+            }
+
+            .features-grid {
+                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                gap: 1.25rem;
+            }
+        }
+
+        /* Small Tablet/Large Mobile: 481px - 768px */
+        @media (max-width: 768px) {
+            nav {
+                padding: 0.7rem 1rem;
+            }
+
+            .nav-left {
+                gap: 0.5rem;
+            }
+
+            .nav-brand {
+                font-size: 0.85rem;
+                letter-spacing: 0.5px;
+            }
+
+            .nav-logo {
+                width: 35px;
+                height: 35px;
+            }
+
+            .nav-logo img {
+                width: 30px;
+                height: 30px;
+            }
+
+            .nav-links {
+                gap: 0.8rem;
+            }
+
+            .nav-links a {
+                font-size: 0.85rem;
+            }
+
+            .btn {
+                padding: 0.6rem 1rem;
+                font-size: 0.85rem;
+            }
+
+            .hero {
+                min-height: 80vh;
+                padding: 2rem 1.25rem;
+            }
+
+            .hero-content {
+                grid-template-columns: 1fr;
+                gap: 2rem;
+            }
+
+            .hero-text h1 {
+                font-size: 1.8rem;
+                margin-bottom: 0.75rem;
+            }
+
+            .hero-text p {
+                font-size: 0.95rem;
+                margin-bottom: 1.25rem;
+            }
+
+            .tagline {
+                font-size: 0.95rem;
+                margin-bottom: 1.25rem;
+            }
+
+            .hero-buttons {
+                gap: 0.75rem;
+            }
+
+            .hero-image {
+                padding: 1.25rem;
+            }
+
+            .ticker-item {
+                padding: 0 0.75rem;
+                font-size: 0.7rem;
+                gap: 0.3rem;
+            }
+
+            .ticker-price {
+                font-size: 0.65rem;
+            }
+
+            .ticker-change {
+                font-size: 0.65rem;
+            }
+
+            .features {
+                padding: 3rem 1.25rem;
+            }
+
+            .features h2 {
+                font-size: 1.6rem;
+            }
+
+            .features-subtitle {
+                font-size: 0.95rem;
+                margin-bottom: 2rem;
+            }
+
+            .features-grid {
+                grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+                gap: 1rem;
+            }
+
+            .feature-card {
+                padding: 1.25rem;
+            }
+
+            .feature-icon {
+                font-size: 2rem;
+            }
+
+            .feature-card h3 {
+                font-size: 1rem;
+            }
+
+            .feature-card p {
+                font-size: 0.85rem;
+            }
+
+            .stats {
+                padding: 3rem 1.25rem;
+            }
+
+            .stats-container {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 1.25rem;
+            }
+
+            .stat-item h3 {
+                font-size: 1.6rem;
+            }
+
+            .stat-item p {
+                font-size: 0.85rem;
+            }
+
+            .mission {
+                padding: 3rem 1.25rem;
+            }
+
+            .mission h2 {
+                font-size: 1.6rem;
+            }
+
+            .mission p {
+                font-size: 0.95rem;
+            }
+
+            .cta {
+                padding: 3rem 1.25rem;
+            }
+
+            .cta h2 {
+                font-size: 1.6rem;
+            }
+
+            .cta p {
+                font-size: 0.95rem;
+            }
+
+            .cta-buttons {
+                gap: 0.75rem;
+            }
+
+            footer {
+                padding: 2rem 1.25rem;
+            }
+
+            .footer-content {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 1.25rem;
+            }
+        }
+
+        /* Mobile: 320px - 480px */
+        @media (max-width: 480px) {
+            nav {
+                padding: 0.6rem 1rem;
+            }
+
+            .nav-left {
+                gap: 0.4rem;
+            }
+
+            .nav-brand {
+                display: none;
+            }
+
+            .nav-logo {
+                width: 32px;
+                height: 32px;
+            }
+
+            .nav-logo img {
+                width: 28px;
+                height: 28px;
+            }
+
+            .nav-links {
+                gap: 0.5rem;
+            }
+
+            .nav-links a:not(.btn) {
+                display: none;
+            }
+
+            .btn {
+                padding: 0.5rem 0.8rem;
+                font-size: 0.75rem;
+            }
+
+            .hero {
+                min-height: auto;
+                padding: 1.5rem 1rem;
+            }
+
+            .hero-content {
+                gap: 1.5rem;
+            }
+
+            .hero-text h1 {
+                font-size: 1.4rem;
+                margin-bottom: 0.5rem;
+            }
+
+            .hero-text p {
+                font-size: 0.9rem;
+                margin-bottom: 1rem;
+            }
+
+            .tagline {
+                font-size: 0.85rem;
+                margin-bottom: 1rem;
+                letter-spacing: 0px;
+            }
+
+            .hero-buttons {
+                flex-direction: column;
+                gap: 0.6rem;
+            }
+
+            .hero-buttons .btn {
+                width: 100%;
+                text-align: center;
+                padding: 0.65rem 1rem;
+            }
+
+            .hero-image {
+                padding: 1rem;
+                border-radius: 10px;
+            }
+
+            .hero-image img {
+                max-width: 80%;
+            }
+
+            .ticker-wrap {
+                padding: 0.5rem 0;
+            }
+
+            .ticker-item {
+                padding: 0 0.6rem;
+                font-size: 0.65rem;
+            }
+
+            .ticker-price {
+                font-size: 0.6rem;
+            }
+
+            .ticker-change {
+                font-size: 0.6rem;
+            }
+
+            .ticker-symbol {
+                letter-spacing: 0px;
+            }
+
+            .features {
+                padding: 2rem 1rem;
+            }
+
+            .features h2 {
+                font-size: 1.4rem;
+                margin-bottom: 0.5rem;
+            }
+
+            .features-subtitle {
+                font-size: 0.9rem;
+                margin-bottom: 1.5rem;
+            }
+
+            .features-grid {
+                grid-template-columns: 1fr;
+                gap: 0.9rem;
+            }
+
+            .feature-card {
+                padding: 1rem;
+            }
+
+            .feature-icon {
+                font-size: 1.8rem;
+                margin-bottom: 0.5rem;
+            }
+
+            .feature-card h3 {
+                font-size: 0.95rem;
+                letter-spacing: 0px;
+            }
+
+            .feature-card p {
+                font-size: 0.8rem;
+            }
+
+            .stats {
+                padding: 2rem 1rem;
+            }
+
+            .stats-container {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 1rem;
+            }
+
+            .stat-item h3 {
+                font-size: 1.4rem;
+            }
+
+            .stat-item p {
+                font-size: 0.8rem;
+            }
+
+            .mission {
+                padding: 2rem 1rem;
+            }
+
+            .mission h2 {
+                font-size: 1.4rem;
+                margin-bottom: 1rem;
+            }
+
+            .mission p {
+                font-size: 0.9rem;
+                line-height: 1.6;
+                margin-bottom: 0.75rem;
+            }
+
+            .cta {
+                padding: 2rem 1rem;
+            }
+
+            .cta h2 {
+                font-size: 1.4rem;
+                margin-bottom: 0.75rem;
+            }
+
+            .cta p {
+                font-size: 0.9rem;
+                margin-bottom: 1.25rem;
+            }
+
+            .cta-buttons {
+                flex-direction: column;
+                gap: 0.6rem;
+            }
+
+            .cta-buttons .btn {
+                width: 100%;
+                text-align: center;
+            }
+
+            footer {
+                padding: 1.5rem 1rem;
+            }
+
+            .footer-content {
+                grid-template-columns: 1fr;
+                gap: 1rem;
+                text-align: center;
+                margin-bottom: 1rem;
+            }
+
+            .footer-section h4 {
+                font-size: 0.9rem;
+                margin-bottom: 0.5rem;
+            }
+
+            .footer-section a {
+                margin-bottom: 0.3rem;
+                font-size: 0.8rem;
+            }
+
+            .footer-tagline {
+                font-size: 0.9rem;
+            }
+
+            .footer-bottom p {
+                font-size: 0.8rem;
+            }
+        }
+
+        /* Extra Small Mobile: 320px - 379px */
+        @media (max-width: 379px) {
+            .hero-text h1 {
+                font-size: 1.2rem;
+            }
+
+            .tagline {
+                font-size: 0.8rem;
+            }
+
+            .features h2 {
+                font-size: 1.2rem;
+            }
+
+            .cta h2 {
+                font-size: 1.2rem;
+            }
+
+            .btn {
+                padding: 0.5rem 0.7rem;
+                font-size: 0.7rem;
+            }
+
+            .hero-buttons .btn {
+                font-size: 0.8rem;
+            }
         }
     </style>
 </head>
@@ -507,13 +963,13 @@
             <div class="nav-logo">
                 <img src="/static/logo.png" alt="Crown Markets Logo">
             </div>
-            <div class="nav-brand"> CROWN MARKETS</div>
+            <div class="nav-brand">CROWN</div>
         </div>
         <div class="nav-links">
             <a href="#features">Features</a>
             <a href="#about">About</a>
             <a href="/login" class="btn btn-outline">Login</a>
-            <a href="/register" class="btn btn-gold">Get Started</a>
+            <a href="/register" class="btn btn-gold">Start</a>
         </div>
     </nav>
 
@@ -527,7 +983,7 @@
         <div class="hero-content">
             <div class="hero-text">
                 <h1>Master Your Trading Journey</h1>
-                <p class="tagline">TRADE GLOBAL • INVEST SMART • GROW WITH CONFIDENCE</p>
+                <p class="tagline">TRADE GLOBAL • INVEST SMART • GROW</p>
                 <p>Experience premium trading tools with real-time market data, advanced analytics, and global opportunities. Whether you're trading stocks, indices, forex, or crypto — Crown Markets has you covered.</p>
                 
                 <div class="hero-buttons">
@@ -542,13 +998,13 @@
     </section>
 
     <!-- Mission Section -->
-    <section class="mission" style="position: relative; z-index: 1; padding: 6rem 2rem; background: rgba(212, 175, 55, 0.08); border-top: 2px solid var(--primary-gold); border-bottom: 1px solid rgba(212, 175, 55, 0.2); backdrop-filter: blur(2px);">
-        <div style="max-width: 900px; margin: 0 auto; text-align: center;">
-            <h2 style="font-size: 2.2rem; margin-bottom: 1.5rem; background: linear-gradient(135deg, #d4af37, #f0d96e); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;">Our Mission</h2>
-            <p style="font-size: 1.05rem; color: var(--text-light); line-height: 1.8; color: #d4d4d4;">
+    <section class="mission">
+        <div class="mission-content">
+            <h2>Our Mission</h2>
+            <p>
                 At Crown Markets, we bring intelligent stock trading opportunities to clients across international markets. Our approach combines <strong>in-depth market analysis</strong>, <strong>disciplined trading strategies</strong>, <strong>risk management</strong>, and <strong>advanced automated technology</strong> to help clients access opportunities across major global stock markets.
             </p>
-            <p style="font-size: 1.05rem; color: var(--text-light); line-height: 1.8; color: #d4d4d4; margin-top: 1rem;">
+            <p>
                 From <strong>Africa to Europe, Asia, the Middle East, and North America</strong>, Crown Markets is focused on making global stock trading simpler, smarter, and more accessible.
             </p>
         </div>
@@ -629,11 +1085,11 @@
             <p>Join thousands of traders who have transformed their financial future with Crown Markets. Access premium trading tools, real-time market data, and expert support — all in one platform.</p>
             
             <div class="cta-buttons">
-                <a href="/register" class="btn btn-gold">Create Account Now</a>
+                <a href="/register" class="btn btn-gold">Create Account</a>
                 <a href="mailto:support@crownmarkets.com" class="btn btn-outline">Contact Support</a>
             </div>
 
-            <p style="margin-top: 2rem; color: var(--text-muted); font-size: 0.9rem;">
+            <p style="margin-top: 1.5rem; color: var(--text-muted); font-size: 0.85rem;">
                 <strong>Smart Trading. Real Growth. Global Opportunities.</strong>
             </p>
         </div>
@@ -671,9 +1127,7 @@
         <div class="footer-bottom">
             <p class="footer-tagline">⚜ CROWN MARKETS</p>
             <p>&copy; 2026 Crown Markets. All rights reserved.</p>
-            <p style="margin-top: 1rem; font-size: 0.85rem;">
-                Risk Disclaimer: Trading financial instruments carries risk. Please trade responsibly.
-            </p>
+            <p>Risk Disclaimer: Trading financial instruments carries risk. Please trade responsibly.</p>
         </div>
     </footer>
 
@@ -751,8 +1205,6 @@
             window.addEventListener("resize", resize);
             resize();
 
-            // Three parallel price series drifting left, at different depths/opacities,
-            // to give a layered "market data" wallpaper feel behind the content.
             function makeSeries(pointCount, baseline, amplitude, color, lineWidth, opacity, speed) {
                 const points = [];
                 let last = baseline;
@@ -776,10 +1228,9 @@
             window.addEventListener("resize", buildSeries);
 
             function extendSeries(s) {
-                // scroll the series by shifting points and appending a new random-walk value
                 const last = s.points[s.points.length - 1];
                 const next = last + (Math.random() - 0.5) * s.amplitude
-                    + (s.baseline - last) * 0.02; // gentle pull back toward baseline so it doesn't drift off-canvas
+                    + (s.baseline - last) * 0.02;
                 s.points.shift();
                 s.points.push(next);
             }
@@ -797,7 +1248,6 @@
                 });
                 ctx.stroke();
 
-                // soft fill under the line for a "depth chart" wallpaper look
                 const grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
                 grad.addColorStop(0, `rgba(${s.color}, ${s.opacity * 0.6})`);
                 grad.addColorStop(1, `rgba(${s.color}, 0)`);
@@ -813,7 +1263,6 @@
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
                 frame++;
                 series.forEach(s => {
-                    // advance each series at its own speed for parallax
                     s.offset += s.speed;
                     if (s.offset >= 1) {
                         s.offset = 0;
