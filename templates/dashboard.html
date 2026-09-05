@@ -413,6 +413,7 @@
 
         <div style="background:rgba(212,175,55,0.04); border:1px solid rgba(212,175,55,0.2); border-radius:8px; padding:16px; margin-bottom:16px;">
           <div class="card-title" style="margin-bottom:12px;">Withdraw Earnings</div>
+          <div class="form-group"><label>Amount (USD)</label><input type="number" id="refWithdrawAmount" placeholder="Minimum $16"></div>
           <div class="form-group"><label>Network</label>
             <select id="refNetwork">
               <option value="TRC20">USDT — TRC20</option>
@@ -649,13 +650,16 @@ function copyRefLink() {
 }
 
 async function submitRefWithdraw() {
+  const amount = parseFloat(document.getElementById('refWithdrawAmount').value || 0);
   const network = document.getElementById('refNetwork').value;
   const address = document.getElementById('refAddress').value.trim();
   const pin = document.getElementById('refPin').value.trim();
+  if (!amount || amount < 16) { showError('Minimum referral withdrawal is $16', 'refError'); return; }
   if (!address || !pin) { showError('Enter all fields', 'refError'); return; }
-  const d = await post('/api/client/referral/withdraw', { network, address, pin });
+  const d = await post('/api/client/referral/withdraw', { amount, network, address, pin });
   if (!d.success) { showError(d.error, 'refError'); return; }
   showSuccess(d.data.message, 'refSuccess');
+  document.getElementById('refWithdrawAmount').value = '';
   document.getElementById('refAddress').value = '';
   document.getElementById('refPin').value = '';
   await refreshAll();
