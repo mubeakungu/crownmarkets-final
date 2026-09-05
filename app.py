@@ -848,12 +848,14 @@ def client_referrals():
 def client_referral_withdraw():
     d    = request.json or {}
     uid  = session["user_id"]
+    amt  = float(d.get("amount", 0))
     pin  = d.get("pin","")
     addr = d.get("address","").strip()
     net  = d.get("network","TRC20").upper()
 
     if not addr:            return err("Enter your USDT wallet address")
     if net not in NETWORKS: return err("Invalid network")
+    if amt < 16:            return err("Minimum referral withdrawal is $16")
 
     conn = get_db()
     cur  = conn.cursor()
@@ -867,17 +869,17 @@ def client_referral_withdraw():
         return err("Invalid PIN", 403)
 
     ref_bal = a["ref_balance"] if a else 0
-    if ref_bal < MIN_WITHDRAWAL:
+    if ref_bal < amt:
         cur.close(); conn.close()
-        return err(f"Minimum referral withdrawal is ${MIN_WITHDRAWAL}")
+        return err(f"Insufficient referral balance. Available: ${ref_bal:.2f}")
 
-    cur.execute("UPDATE accounts SET ref_balance=0 WHERE user_id=%s", (uid,))
+    cur.execute("UPDATE accounts SET ref_balance=ref_balance-%s WHERE user_id=%s", (amt, uid))
     ref = "REF-" + secrets.token_hex(4).upper()
     cur.execute(
         "INSERT INTO transactions(id,user_id,account_id,type,method,amount_usd,"
         "reference,status,note,deposit_address,created_at) "
         "VALUES(%s,%s,%s,'REFERRAL_WITHDRAWAL',%s,%s,%s,'PENDING',%s,%s,%s)",
-        (_uid(), uid, a["id"], net, ref_bal, ref,
+        (_uid(), uid, a["id"], net, amt, ref,
          f"Referral bonus to {addr[:20]}...", addr, _now())
     )
     conn.commit()
@@ -1647,7 +1649,6 @@ def admin_edit_client(uid):
         cur.close(); conn.close()
         return err("That email is already used by another account", 409)
 
-# ── FIX #2: DELETE CLIENT ENDPOINT (NEW) ──────────────────────────────────────
 @app.route("/api/admin/client/<uid>/delete", methods=["POST"])
 @admin_required
 def admin_delete_client(uid):
@@ -1729,7 +1730,6 @@ def admin_reset_client_password(uid):
     log.info(f"Admin reset password for client {u['email']}")
     return ok({"message": f"Password reset for {u['name']}"})
 
-# ── FIX #1: TRADE RUN ENDPOINT (FIXED - SYNCHRONOUS) ──────────────────────────
 @app.route("/api/admin/trade/run", methods=["POST"])
 @admin_required
 def admin_run_trades():
