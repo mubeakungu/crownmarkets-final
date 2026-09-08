@@ -58,6 +58,9 @@ TRADE_HOUR          = int(os.environ.get("TRADE_HOUR", "5"))
 TRADE_SYMBOL        = os.environ.get("TRADE_SYMBOL", "BTCUSDT")
 CHECK_INTERVAL      = 60
 
+# ── DEPOSIT PACKAGES ──────────────────────────────────────────────────────────
+DEPOSIT_PACKAGES = [250, 500, 750, 1000, 1250, 1500, 1750, 2000]
+
 # ── NETWORKS & WALLETS ────────────────────────────────────────────────────────
 NETWORKS = {
     "TRC20": {"network": "TRX"},
@@ -826,6 +829,7 @@ def client_summary():
         "days_traded":         days_traded["c"],
         "daily_profit":        expected_daily,
         "daily_profit_rate":   f"${DAILY_PROFIT_USD} per day",
+        "deposit_packages":    DEPOSIT_PACKAGES,
     })
 
 @app.route("/api/client/referrals")
@@ -1089,7 +1093,7 @@ def client_mpesa_stk_push():
         phone       = phone,
         amount_kes  = int(amount_kes),
         account_ref = ref,
-        description = "Summit Deposit"
+        description = "Crown Deposit"
     )
 
     if not push_ok:
@@ -1234,12 +1238,16 @@ def client_deposit_pending():
         return err("Use the M-Pesa deposit flow")
     if amt < 250:  return err("Minimum deposit is $250")
     if not addr:   return err("Deposit address is required")
+    
+    # Validate amount is in approved packages or within reasonable custom range
+    if amt not in DEPOSIT_PACKAGES and amt < 250:
+        return err(f"Minimum deposit is $250")
 
     conn = get_db()
     cur  = conn.cursor()
     cur.execute("SELECT id FROM accounts WHERE user_id=%s", (uid,))
     acct = cur.fetchone()
-    ref  = "SWC-" + secrets.token_hex(4).upper()
+    ref  = "DEP-" + secrets.token_hex(4).upper()
     cur.execute(
         "INSERT INTO transactions(id,user_id,account_id,type,method,amount_usd,"
         "reference,status,deposit_address,created_at) "
@@ -1336,6 +1344,7 @@ def admin_stats():
         "trade_symbol":        TRADE_SYMBOL,
         "scheduler_running":   _scheduler_started,
         "min_withdrawal":      MIN_WITHDRAWAL,
+        "deposit_packages":    DEPOSIT_PACKAGES,
     })
 
 @app.route("/api/admin/transactions")
@@ -1652,10 +1661,6 @@ def admin_edit_client(uid):
 @app.route("/api/admin/client/<uid>/delete", methods=["POST"])
 @admin_required
 def admin_delete_client(uid):
-    """
-    Delete a client and all associated data.
-    WARNING: This is irreversible!
-    """
     d = request.json or {}
     confirm = d.get("confirm", False)
     
@@ -1665,7 +1670,6 @@ def admin_delete_client(uid):
     conn = get_db()
     cur = conn.cursor()
     
-    # Get user info before deleting
     cur.execute("SELECT id, name, email FROM users WHERE id=%s AND role='client'", (uid,))
     u = cur.fetchone()
     if not u:
@@ -1673,7 +1677,6 @@ def admin_delete_client(uid):
         return err("Client not found", 404)
     
     try:
-        # Delete in correct order (foreign key constraints)
         cur.execute("DELETE FROM notifications WHERE user_id=%s", (uid,))
         cur.execute("DELETE FROM daily_trade_log WHERE user_id=%s", (uid,))
         cur.execute("DELETE FROM trades WHERE user_id=%s", (uid,))
@@ -1713,7 +1716,7 @@ def admin_reset_client_password(uid):
         return err("Client not found", 404)
 
     cur.execute("UPDATE users SET password_hash=%s WHERE id=%s",
-                (_hash(new_password), uid))
+                (_hash(new_password), u["id"]))
 
     if notify:
         create_notification(
@@ -1733,9 +1736,8 @@ def admin_reset_client_password(uid):
 @app.route("/api/admin/trade/run", methods=["POST"])
 @admin_required
 def admin_run_trades():
-    """Run daily trades synchronously and return results."""
     try:
-        run_daily_trades()  # Call directly instead of threading
+        run_daily_trades()
         return ok({"message": f"Daily trades completed — ${DAILY_PROFIT_USD} per eligible client"})
     except Exception as e:
         log.error(f"Trade run failed: {e}")
@@ -1870,236 +1872,6 @@ def admin_trades():
     cur.close(); conn.close()
     return ok([dict(t) for t in trades])
 
-@app.route("/api/admin/client/<uid>/correct-profit", methods=["POST"])
-@admin_required
-def admin_correct_client_profit(uid):
-    d     = request.json or {}
-    apply = bool(d.get("apply", False))
-
-    conn = get_db()
-    cur  = conn.cursor()
-
-    cur.execute("SELECT id, name, email FROM users WHERE id=%s AND role='client'", (uid,))
-    u = cur.fetchone()
-    if not u:
-        cur.close(); conn.close()
-        return err("Client not found", 404)
-
-    cur.execute("SELECT id, balance, equity FROM accounts WHERE user_id=%s", (uid,))
-    a = cur.fetchone()
-    if not a:
-        cur.close(); conn.close()
-        return err("Account not found for this client", 404)
-
-    cur.execute(
-        "SELECT COALESCE(SUM(amount_usd),0) AS s FROM transactions "
-        "WHERE user_id=%s AND type='DEPOSIT' AND status='COMPLETED'", (uid,)
-    )
-    deposits = cur.fetchone()["s"]
-
-    total_deposit = deposits
-
-    cur.execute(
-        "SELECT id, date, profit FROM daily_trade_log WHERE user_id=%s ORDER BY date", (uid,)
-    )
-    trade_log_rows  = cur.fetchall()
-    days_traded     = len(trade_log_rows)
-    old_total_profit = round(sum(r["profit"] for r in trade_log_rows), 2)
-
-    if total_deposit < MIN_BALANCE or days_traded == 0:
-        flat_daily = 0.0
-    else:
-        flat_daily = DAILY_PROFIT_USD
-
-    correct_total_profit = round(flat_daily * days_traded, 2)
-    delta = round(correct_total_profit - old_total_profit, 2)
-
-    result = {
-        "user_id":              uid,
-        "name":                 u["name"],
-        "email":                u["email"],
-        "total_deposit":        total_deposit,
-        "days_traded":          days_traded,
-        "flat_daily":           flat_daily,
-        "old_total_profit":     old_total_profit,
-        "correct_total_profit": correct_total_profit,
-        "delta":                delta,
-        "current_balance":      a["balance"],
-        "new_balance":          round(a["balance"] + delta, 2),
-        "per_day": [
-            {"date": r["date"], "old_profit": r["profit"], "new_profit": flat_daily}
-            for r in trade_log_rows
-        ],
-        "applied": False,
-    }
-
-    if apply and abs(delta) >= 0.01:
-        try:
-            cur.execute(
-                "UPDATE accounts SET balance=balance+%s, equity=equity+%s WHERE user_id=%s",
-                (delta, delta, uid)
-            )
-            note = (
-                f"Balance correction (single-client, scoped): recomputed under "
-                f"current profit formula (${DAILY_PROFIT_USD} flat per client daily). "
-                f"Only this client's data was touched."
-            )
-            cur.execute(
-                "INSERT INTO transactions(id,user_id,account_id,type,method,amount_usd,"
-                "reference,status,note,created_at,completed_at) "
-                "VALUES(%s,%s,%s,'ADJUSTMENT','SINGLE_CLIENT_CORRECTION',%s,%s,'COMPLETED',%s,%s,%s)",
-                (_uid(), uid, a["id"], delta,
-                 "COR-" + secrets.token_hex(4).upper(), note, _now(), _now())
-            )
-            for row in trade_log_rows:
-                cur.execute(
-                    "UPDATE daily_trade_log SET profit=%s WHERE id=%s",
-                    (flat_daily, row["id"])
-                )
-            direction = "reduced" if delta < 0 else "increased"
-            notif_msg = (
-                f"We've corrected how your daily trading profit is calculated: it's "
-                f"now ${DAILY_PROFIT_USD} flat per day. "
-                f"As part of this correction your balance has been {direction} by ${abs(delta):,.2f}. "
-                f"Your new balance is ${result['new_balance']:,.2f}. See your "
-                f"Transactions tab for the full adjustment record."
-            )
-            create_notification(
-                cur, uid,
-                "Account balance updated — profit calculation correction",
-                notif_msg,
-                "ALERT" if delta < 0 else "INFO"
-            )
-            conn.commit()
-            result["applied"] = True
-            log.info(f"Single-client profit correction applied: {u['name']} delta=${delta}")
-        except Exception as e:
-            conn.rollback()
-            result["applied"] = False
-            result["error"] = str(e)
-
-    cur.close(); conn.close()
-    return ok(result)
-
-@app.route("/api/admin/migrate/flat-profit", methods=["POST"])
-@admin_required
-def admin_migrate_flat_profit():
-    d     = request.json or {}
-    apply = bool(d.get("apply", False))
-
-    conn = get_db()
-    cur  = conn.cursor()
-
-    cur.execute(
-        "SELECT u.id, u.name, u.email, a.id AS account_id, a.balance, a.equity "
-        "FROM users u JOIN accounts a ON u.id = a.user_id "
-        "WHERE u.role = 'client' ORDER BY u.created_at"
-    )
-    clients = cur.fetchall()
-
-    results      = []
-    total_delta  = 0.0
-
-    for c in clients:
-        uid = c["id"]
-
-        cur.execute(
-            "SELECT COALESCE(SUM(amount_usd),0) AS s FROM transactions "
-            "WHERE user_id=%s AND type='DEPOSIT' AND status='COMPLETED'", (uid,)
-        )
-        deposits = cur.fetchone()["s"]
-
-        total_deposit = deposits
-
-        cur.execute(
-            "SELECT id, profit FROM daily_trade_log WHERE user_id=%s ORDER BY date", (uid,)
-        )
-        trade_log_rows    = cur.fetchall()
-        days_traded        = len(trade_log_rows)
-        old_total_profit   = round(sum(r["profit"] for r in trade_log_rows), 2)
-
-        cur.execute(
-            "SELECT COUNT(*) AS c FROM transactions "
-            "WHERE user_id=%s AND type IN ('DEPOSIT','WITHDRAWAL') AND status='COMPLETED'", (uid,)
-        )
-        mixed_history = cur.fetchone()["c"] > 1
-
-        if total_deposit < MIN_BALANCE or days_traded == 0:
-            flat_daily = 0.0
-        else:
-            flat_daily = DAILY_PROFIT_USD
-
-        correct_total_profit = round(flat_daily * days_traded, 2)
-        delta = round(correct_total_profit - old_total_profit, 2)
-
-        entry = {
-            "user_id": uid, "name": c["name"], "email": c["email"],
-            "total_deposit": total_deposit, "days_traded": days_traded,
-            "flat_daily_under_current_formula": flat_daily,
-            "old_total_profit": old_total_profit,
-            "correct_total_profit": correct_total_profit,
-            "delta": delta, "mixed_history": mixed_history,
-        }
-        results.append(entry)
-
-        if abs(delta) < 0.01:
-            continue
-        total_delta += delta
-
-        if apply:
-            try:
-                cur.execute(
-                    "UPDATE accounts SET balance = balance + %s, equity = equity + %s "
-                    "WHERE user_id = %s",
-                    (delta, delta, uid)
-                )
-                note = (
-                    f"Balance correction: recomputed under current profit formula "
-                    f"(${DAILY_PROFIT_USD} flat per client daily)."
-                )
-                cur.execute(
-                    "INSERT INTO transactions(id,user_id,account_id,type,method,amount_usd,"
-                    "reference,status,note,created_at,completed_at) "
-                    "VALUES(%s,%s,%s,'ADJUSTMENT','MIGRATION',%s,%s,'COMPLETED',%s,%s,%s)",
-                    (_uid(), uid, c["account_id"], delta,
-                     "MIG-" + secrets.token_hex(4).upper(), note, _now(), _now())
-                )
-                for row in trade_log_rows:
-                    cur.execute(
-                        "UPDATE daily_trade_log SET profit=%s WHERE id=%s",
-                        (flat_daily, row["id"])
-                    )
-
-                direction = "reduced" if delta < 0 else "increased"
-                notif_msg = (
-                    f"We've corrected how your daily trading profit is calculated: it's "
-                    f"now ${DAILY_PROFIT_USD} flat per day. "
-                    f"As part of this correction your balance has been {direction} by "
-                    f"${abs(delta):,.2f}. Your new balance is ${c['balance'] + delta:,.2f}. "
-                    f"See your Transactions tab for the full adjustment record."
-                )
-                create_notification(
-                    cur, uid,
-                    "Account balance updated — profit calculation correction",
-                    notif_msg,
-                    "ALERT" if delta < 0 else "INFO"
-                )
-                conn.commit()
-                entry["applied"] = True
-            except Exception as e:
-                conn.rollback()
-                entry["applied"] = False
-                entry["error"] = str(e)
-
-    cur.close(); conn.close()
-
-    return ok({
-        "mode": "APPLIED" if apply else "DRY_RUN",
-        "clients_needing_correction": len([r for r in results if abs(r["delta"]) >= 0.01]),
-        "total_delta": round(total_delta, 2),
-        "results": results,
-    })
-
 @app.route("/api/admin/referrals")
 @admin_required
 def admin_referrals():
@@ -2169,6 +1941,7 @@ def scheduler_status():
         "min_balance":       MIN_BALANCE,
         "min_withdrawal":    MIN_WITHDRAWAL,
         "symbol":            TRADE_SYMBOL,
+        "deposit_packages":  DEPOSIT_PACKAGES,
     })
 
 # ── STARTUP ───────────────────────────────────────────────────────────────────
@@ -2177,7 +1950,7 @@ start_scheduler()
 
 if __name__ == "__main__":
     print("\n" + "="*60)
-    print("   Crown Markets v5.28 — $3.5 DAILY PROFIT PER CLIENT (FLAT)")
+    print("   Crown Markets v5.30 — $3.5 DAILY PROFIT PER CLIENT (FLAT)")
     print("="*60)
     print(f"   URL    : http://127.0.0.1:8080")
     print(f"   Client : john@test.com  / demo1234")
@@ -2186,7 +1959,8 @@ if __name__ == "__main__":
     print(f"   Eligible min total deposit: ${MIN_BALANCE:.0f}")
     print(f"   Min withdrawal per transaction: ${MIN_WITHDRAWAL:.0f}")
     print(f"   Symbol : {TRADE_SYMBOL}")
-    print(f"   Deposit: $250 min  |  Withdrawal: ${MIN_WITHDRAWAL} min (unlimited max)  |  Ref Commission: 0% (DISABLED)")
+    print(f"   Deposit: ${250} min  |  Withdrawal: ${MIN_WITHDRAWAL} min (unlimited max)  |  Ref Commission: 0% (DISABLED)")
+    print(f"   Packages: {', '.join(f'${p}' for p in DEPOSIT_PACKAGES)}")
     print(f"   Binance: {'CONNECTED ✓' if bnb else 'fallback prices'}")
     print(f"   TRC20  : {'SET ✓' if MANUAL_WALLETS.get('TRC20') else 'NOT SET ✗'}")
     print(f"   M-Pesa : STK Push | Env: {MPESA_ENV} | Shortcode: {MPESA_SHORTCODE}")
