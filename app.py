@@ -653,14 +653,8 @@ def admin_dashboard():
     return render_template("admin_dashboard.html")
 
 # ── AUTH ──────────────────────────────────────────────────────────────────────
-# REFERRAL REGISTRATION FIX
-# Add this to api_register() after creating the account
-
-# === FIX #1: Create referral record at registration (not on deposit) ===
-# In api_register(), after creating accounts, add this:
-
-def api_register_fixed():
-    """Fixed version with immediate referral creation"""
+@app.route("/api/auth/register", methods=["POST"])
+def api_register():
     d     = request.json or {}
     name  = d.get("name","").strip()
     email = d.get("email","").lower().strip()
@@ -681,12 +675,9 @@ def api_register_fixed():
         if ref:
             cur.execute("SELECT id FROM users WHERE referral_code=%s", (ref,))
             referrer = cur.fetchone()
-            if referrer: 
-                referred_by = referrer["id"]
+            if referrer: referred_by = referrer["id"]
 
         uid, aid, now = _uid(), _uid(), _now()
-        
-        # Create user
         cur.execute(
             "INSERT INTO users(id,name,email,phone,password_hash,pin_hash,"
             "role,referral_code,referred_by,created_at) "
@@ -694,15 +685,13 @@ def api_register_fixed():
             (uid, name, email, phone, _hash(pw), _hash(pin),
              secrets.token_hex(4).upper(), referred_by, now)
         )
-        
-        # Create account
         cur.execute(
             "INSERT INTO accounts(id,user_id,balance,equity,ref_balance,"
             "created_at) VALUES(%s,%s,0,0,0,%s)",
             (aid, uid, now)
         )
         
-        # === NEW: Create referral record immediately if referred_by exists ===
+        # === FIX #1: Create referral record immediately if user was referred ===
         if referred_by:
             ref_id = _uid()
             cur.execute(
@@ -711,7 +700,7 @@ def api_register_fixed():
                 (ref_id, referred_by, uid, "REGISTRATION", now)
             )
             log.info(f"Referral created at registration: {referred_by[:8]}... → {email}")
-        # === END NEW ===
+        # === END FIX #1 ===
         
         conn.commit()
         session["user_id"] = uid
@@ -720,87 +709,6 @@ def api_register_fixed():
     except psycopg2.errors.UniqueViolation:
         conn.rollback()
         return err("Email already registered", 409)
-    finally:
-        cur.close()
-        conn.close()
-
-
-# === FIX #2: Update process_referral_commission to not create duplicates ===
-
-def process_referral_commission_fixed(tx_id, user_id, amount_usd):
-    """
-    Updated to:
-    - Check if referral already exists (from registration)
-    - Update existing referral with commission
-    - Create new referral only if it doesn't exist (backward compat)
-    """
-    if amount_usd < REFERRAL_MIN_DEPOSIT:
-        return
-    
-    conn = get_db()
-    cur  = conn.cursor()
-    
-    cur.execute("SELECT * FROM users WHERE id=%s", (user_id,))
-    user = cur.fetchone()
-    if not user or not user["referred_by"]:
-        cur.close()
-        conn.close()
-        return
-
-    cur.execute("SELECT * FROM users WHERE id=%s", (user["referred_by"],))
-    referrer = cur.fetchone()
-    if not referrer:
-        cur.close()
-        conn.close()
-        return
-
-    # Check if referral already exists (from registration)
-    cur.execute(
-        "SELECT id, commission_usd FROM referrals WHERE referrer_id=%s AND referred_id=%s",
-        (user["referred_by"], user_id)
-    )
-    existing_ref = cur.fetchone()
-
-    try:
-        if existing_ref:
-            # Update existing referral with commission and mark as CREDITED
-            commission = round(amount_usd * REFERRAL_COMMISSION_PCT, 2)
-            cur.execute(
-                "UPDATE referrals SET commission_usd=%s, status='CREDITED', "
-                "triggered_by=%s WHERE id=%s",
-                (commission, tx_id, existing_ref["id"])
-            )
-            
-            if commission > 0:
-                cur.execute(
-                    "UPDATE accounts SET ref_balance=ref_balance+%s WHERE user_id=%s",
-                    (commission, referrer["id"])
-                )
-                log.info(f"Referral commission updated: {referrer['name']} +${commission}")
-            else:
-                log.info(f"Referral deposit confirmed (0% commission): {referrer['name']} ← {user['name']}")
-        else:
-            # Create new referral if doesn't exist (backward compatibility)
-            commission = round(amount_usd * REFERRAL_COMMISSION_PCT, 2)
-            cur.execute(
-                "INSERT INTO referrals(id,referrer_id,referred_id,commission_usd,"
-                "status,triggered_by,created_at) VALUES(%s,%s,%s,%s,'CREDITED',%s,%s)",
-                (_uid(), referrer["id"], user_id, commission, tx_id, _now())
-            )
-            
-            if commission > 0:
-                cur.execute(
-                    "UPDATE accounts SET ref_balance=ref_balance+%s WHERE user_id=%s",
-                    (commission, referrer["id"])
-                )
-                log.info(f"Referral commission: {referrer['name']} +${commission}")
-            else:
-                log.info(f"Referral tracked (0% commission): {referrer['name']} ← {user['name']}")
-        
-        conn.commit()
-    except Exception as e:
-        conn.rollback()
-        log.warning(f"Referral processing failed: {e}")
     finally:
         cur.close()
         conn.close()
