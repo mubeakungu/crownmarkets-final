@@ -468,9 +468,6 @@ def process_referral_commission(tx_id, user_id, amount_usd):
     Process referral commission on deposit.
     If referral was already created at registration, update it.
     If not, create it (backward compatibility).
-    
-    FIX: Check if referral already exists (from registration) and update it,
-    instead of creating a duplicate.
     """
     if amount_usd < REFERRAL_MIN_DEPOSIT:
         return
@@ -514,9 +511,9 @@ def process_referral_commission(tx_id, user_id, amount_usd):
                     "UPDATE accounts SET ref_balance=ref_balance+%s WHERE user_id=%s",
                     (commission, referrer["id"])
                 )
-                log.info(f"Referral commission: {referrer['name']} +${commission}")
+                log.info(f"✓ Referral commission: {referrer['name']} +${commission}")
             else:
-                log.info(f"Referral confirmed (0% commission): {referrer['name']} ← {user['name']}")
+                log.info(f"✓ Referral confirmed (0% commission): {referrer['name']} ← {user['name']}")
         else:
             # Create new referral if doesn't exist (backward compatibility for old users)
             commission = round(amount_usd * REFERRAL_COMMISSION_PCT, 2)
@@ -531,9 +528,9 @@ def process_referral_commission(tx_id, user_id, amount_usd):
                     "UPDATE accounts SET ref_balance=ref_balance+%s WHERE user_id=%s",
                     (commission, referrer["id"])
                 )
-                log.info(f"Referral commission: {referrer['name']} +${commission}")
+                log.info(f"✓ Referral commission: {referrer['name']} +${commission}")
             else:
-                log.info(f"Referral tracked (0% commission): {referrer['name']} ← {user['name']}")
+                log.info(f"✓ Referral tracked (0% commission): {referrer['name']} ← {user['name']}")
         
         conn.commit()
     except Exception as e:
@@ -691,7 +688,7 @@ def api_register():
             (aid, uid, now)
         )
         
-        # === FIX #1: Create referral record immediately if user was referred ===
+        # Create referral record immediately if user was referred
         if referred_by:
             ref_id = _uid()
             cur.execute(
@@ -699,8 +696,7 @@ def api_register():
                 "status, triggered_by, created_at) VALUES(%s, %s, %s, 0, 'PENDING', %s, %s)",
                 (ref_id, referred_by, uid, "REGISTRATION", now)
             )
-            log.info(f"Referral created at registration: {referred_by[:8]}... → {email}")
-        # === END FIX #1 ===
+            log.info(f"✓ Referral created at registration: {referred_by[:8]}... → {email}")
         
         conn.commit()
         session["user_id"] = uid
@@ -1249,11 +1245,12 @@ def mpesa_callback():
                 f"+${tx['amount_usd']} | MpesaRef: {mpesa_ref}"
             )
 
-            threading.Thread(
-                target=process_referral_commission,
-                args=(tx["id"], tx["user_id"], tx["amount_usd"]),
-                daemon=True
-            ).start()
+            # Process referral synchronously
+            try:
+                process_referral_commission(tx["id"], tx["user_id"], tx["amount_usd"])
+                log.info(f"✓ Referral processed immediately for M-Pesa deposit {tx['id']}")
+            except Exception as e:
+                log.error(f"✗ Referral processing error during M-Pesa callback: {e}")
 
         else:
             result_desc = stk.get("ResultDesc", "Cancelled or failed")
@@ -1434,11 +1431,13 @@ def admin_approve_deposit():
     conn.commit()
     cur.close(); conn.close()
 
-    threading.Thread(
-        target=process_referral_commission,
-        args=(txid, tx["user_id"], tx["amount_usd"]),
-        daemon=True
-    ).start()
+    # ✅ FIX: Process referral synchronously (immediately)
+    try:
+        process_referral_commission(txid, tx["user_id"], tx["amount_usd"])
+        log.info(f"✓ Referral processed immediately for deposit {txid}")
+    except Exception as e:
+        log.error(f"✗ Referral processing error: {e}")
+    
     return ok({"message": f"Deposit of ${tx['amount_usd']:,.2f} approved"})
 
 @app.route("/api/admin/deposit/reject", methods=["POST"])
@@ -1854,13 +1853,13 @@ def admin_create_referral():
             )
 
             conn.commit()
-            log.info(f"Admin created referral: {referrer['name']} → {referred['name']} + ${deposit_amount} deposit")
+            log.info(f"✓ Admin created referral: {referrer['name']} → {referred['name']} + ${deposit_amount} deposit")
             return ok({
                 "message": f"Referral created: {referrer['name']} → {referred['name']} with ${deposit_amount} deposit"
             })
         else:
             conn.commit()
-            log.info(f"Admin created referral: {referrer['name']} → {referred['name']}")
+            log.info(f"✓ Admin created referral: {referrer['name']} → {referred['name']}")
             return ok({
                 "message": f"Referral created: {referrer['name']} → {referred['name']}"
             })
@@ -1954,7 +1953,7 @@ def admin_create_referral_member():
             )
 
             conn.commit()
-            log.info(f"Admin created referral member: {name} ({email}) → {referrer['name']} + ${deposit_amount} deposit")
+            log.info(f"✓ Admin created referral member: {name} ({email}) → {referrer['name']} + ${deposit_amount} deposit")
             return ok({
                 "message": f"Member {name} created and linked to {referrer['name']} with ${deposit_amount} deposit",
                 "data": {
@@ -1966,7 +1965,7 @@ def admin_create_referral_member():
             })
         else:
             conn.commit()
-            log.info(f"Admin created referral member: {name} ({email}) → {referrer['name']}")
+            log.info(f"✓ Admin created referral member: {name} ({email}) → {referrer['name']}")
             return ok({
                 "message": f"Member {name} created and linked to {referrer['name']}",
                 "data": {
@@ -2206,7 +2205,7 @@ start_scheduler()
 
 if __name__ == "__main__":
     print("\n" + "="*60)
-    print("   Crown Markets v5.31 — $3.5 DAILY PROFIT PER CLIENT (FLAT)")
+    print("   Crown Markets v5.32 — $3.5 DAILY PROFIT PER CLIENT (FLAT)")
     print("="*60)
     print(f"   URL    : http://127.0.0.1:8080")
     print(f"   Client : john@test.com  / demo1234")
@@ -2222,6 +2221,6 @@ if __name__ == "__main__":
     print(f"   M-Pesa : STK Push | Env: {MPESA_ENV} | Shortcode: {MPESA_SHORTCODE}")
     print(f"   KES/USD: {KES_PER_USD} | Callback: {MPESA_CALLBACK_URL}")
     print(f"   Forgot Password: /forgot-password (email+phone+PIN verification)")
-    print(f"   FIXED: Referrals now created at registration, display immediately")
+    print(f"   FIXED v5.32: Referrals sync immediately on deposit approval")
     print("="*60 + "\n")
     app.run(debug=False, port=8080, host="0.0.0.0")
