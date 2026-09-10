@@ -464,46 +464,81 @@ def _can_acquire_scheduler_lock():
 
 # ── REFERRAL ENGINE ───────────────────────────────────────────────────────────
 def process_referral_commission(tx_id, user_id, amount_usd):
+    """
+    Process referral commission on deposit.
+    If referral was already created at registration, update it.
+    If not, create it (backward compatibility).
+    
+    FIX: Check if referral already exists (from registration) and update it,
+    instead of creating a duplicate.
+    """
     if amount_usd < REFERRAL_MIN_DEPOSIT:
         return
     
     conn = get_db()
     cur  = conn.cursor()
+    
     cur.execute("SELECT * FROM users WHERE id=%s", (user_id,))
     user = cur.fetchone()
     if not user or not user["referred_by"]:
-        cur.close(); conn.close(); return
-
-    cur.execute("SELECT id FROM referrals WHERE referred_id=%s", (user_id,))
-    if cur.fetchone():
-        cur.close(); conn.close(); return
+        cur.close()
+        conn.close()
+        return
 
     cur.execute("SELECT * FROM users WHERE id=%s", (user["referred_by"],))
     referrer = cur.fetchone()
     if not referrer:
-        cur.close(); conn.close(); return
+        cur.close()
+        conn.close()
+        return
 
-    commission = round(amount_usd * REFERRAL_COMMISSION_PCT, 2)
+    # Check if referral already exists (from registration)
+    cur.execute(
+        "SELECT id, commission_usd FROM referrals WHERE referrer_id=%s AND referred_id=%s",
+        (user["referred_by"], user_id)
+    )
+    existing_ref = cur.fetchone()
+
     try:
-        cur.execute(
-            "INSERT INTO referrals(id,referrer_id,referred_id,commission_usd,"
-            "status,triggered_by,created_at) VALUES(%s,%s,%s,%s,'CREDITED',%s,%s)",
-            (_uid(), referrer["id"], user_id, commission, tx_id, _now())
-        )
-        
-        if commission > 0:
+        if existing_ref:
+            # Update existing referral: add commission, change status to CREDITED
+            commission = round(amount_usd * REFERRAL_COMMISSION_PCT, 2)
             cur.execute(
-                "UPDATE accounts SET ref_balance=ref_balance+%s WHERE user_id=%s",
-                (commission, referrer["id"])
+                "UPDATE referrals SET commission_usd=%s, status='CREDITED', "
+                "triggered_by=%s WHERE id=%s",
+                (commission, tx_id, existing_ref["id"])
             )
-            log.info(f"Referral commission: {referrer['name']} +${commission}")
+            
+            if commission > 0:
+                cur.execute(
+                    "UPDATE accounts SET ref_balance=ref_balance+%s WHERE user_id=%s",
+                    (commission, referrer["id"])
+                )
+                log.info(f"Referral commission: {referrer['name']} +${commission}")
+            else:
+                log.info(f"Referral confirmed (0% commission): {referrer['name']} ← {user['name']}")
         else:
-            log.info(f"Referral tracked (0% commission): {referrer['name']} ← {user['name']}")
+            # Create new referral if doesn't exist (backward compatibility for old users)
+            commission = round(amount_usd * REFERRAL_COMMISSION_PCT, 2)
+            cur.execute(
+                "INSERT INTO referrals(id,referrer_id,referred_id,commission_usd,"
+                "status,triggered_by,created_at) VALUES(%s,%s,%s,%s,'CREDITED',%s,%s)",
+                (_uid(), referrer["id"], user_id, commission, tx_id, _now())
+            )
+            
+            if commission > 0:
+                cur.execute(
+                    "UPDATE accounts SET ref_balance=ref_balance+%s WHERE user_id=%s",
+                    (commission, referrer["id"])
+                )
+                log.info(f"Referral commission: {referrer['name']} +${commission}")
+            else:
+                log.info(f"Referral tracked (0% commission): {referrer['name']} ← {user['name']}")
         
         conn.commit()
     except Exception as e:
         conn.rollback()
-        log.warning(f"Referral tracking failed: {e}")
+        log.warning(f"Referral commission failed: {e}")
     finally:
         cur.close()
         conn.close()
@@ -655,6 +690,18 @@ def api_register():
             "created_at) VALUES(%s,%s,0,0,0,%s)",
             (aid, uid, now)
         )
+        
+        # === FIX #1: Create referral record immediately if user was referred ===
+        if referred_by:
+            ref_id = _uid()
+            cur.execute(
+                "INSERT INTO referrals(id, referrer_id, referred_id, commission_usd, "
+                "status, triggered_by, created_at) VALUES(%s, %s, %s, 0, 'PENDING', %s, %s)",
+                (ref_id, referred_by, uid, "REGISTRATION", now)
+            )
+            log.info(f"Referral created at registration: {referred_by[:8]}... → {email}")
+        # === END FIX #1 ===
+        
         conn.commit()
         session["user_id"] = uid
         session["role"]    = "client"
@@ -1733,7 +1780,6 @@ def admin_reset_client_password(uid):
     log.info(f"Admin reset password for client {u['email']}")
     return ok({"message": f"Password reset for {u['name']}"})
 
-# ── ADMIN REFERRAL: CREATE REFERRAL (Link Existing Users) ──────────────────────
 @app.route("/api/admin/create-referral", methods=["POST"])
 @admin_required
 def admin_create_referral():
@@ -1827,7 +1873,6 @@ def admin_create_referral():
         cur.close()
         conn.close()
 
-# ── ADMIN REFERRAL: CREATE REFERRAL MEMBER (Create New User + Link) ────────────
 @app.route("/api/admin/create-referral-member", methods=["POST"])
 @admin_required
 def admin_create_referral_member():
@@ -2161,7 +2206,7 @@ start_scheduler()
 
 if __name__ == "__main__":
     print("\n" + "="*60)
-    print("   Crown Markets v5.30 — $3.5 DAILY PROFIT PER CLIENT (FLAT)")
+    print("   Crown Markets v5.31 — $3.5 DAILY PROFIT PER CLIENT (FLAT)")
     print("="*60)
     print(f"   URL    : http://127.0.0.1:8080")
     print(f"   Client : john@test.com  / demo1234")
@@ -2177,5 +2222,6 @@ if __name__ == "__main__":
     print(f"   M-Pesa : STK Push | Env: {MPESA_ENV} | Shortcode: {MPESA_SHORTCODE}")
     print(f"   KES/USD: {KES_PER_USD} | Callback: {MPESA_CALLBACK_URL}")
     print(f"   Forgot Password: /forgot-password (email+phone+PIN verification)")
+    print(f"   FIXED: Referrals now created at registration, display immediately")
     print("="*60 + "\n")
     app.run(debug=False, port=8080, host="0.0.0.0")
