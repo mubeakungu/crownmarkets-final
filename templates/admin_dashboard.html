@@ -128,6 +128,17 @@
     .action-btns { display:flex; gap:8px; flex-wrap:wrap; }
 
     .tbl-wrapper { overflow-x:auto; }
+    
+    .tab-group { display:flex; gap:10px; margin-bottom:20px; border-bottom:1px solid var(--border-subtle); }
+    .tab-btn { padding:12px 16px; background:none; border:none; color:var(--text-muted); font-size:13px; font-weight:600; cursor:pointer; transition:all 0.2s; border-bottom:2px solid transparent; }
+    .tab-btn:hover { color:var(--gold-bright); }
+    .tab-btn.active { color:var(--primary-gold); border-bottom-color:var(--primary-gold); }
+    
+    .tab-content { display:none; }
+    .tab-content.active { display:block; }
+    
+    .checkbox-group { display:flex; align-items:center; gap:8px; padding:10px 12px; background:rgba(15,21,25,0.6); border:1px solid var(--border-subtle); border-radius:8px; cursor:pointer; }
+    .checkbox-group input[type="checkbox"] { width:18px; height:18px; cursor:pointer; }
 
     @media(max-width:1024px) { 
       .sidebar { width:200px; }
@@ -235,7 +246,7 @@
     </div>
     <div class="nav-item" onclick="openPage('adjust', this)">
       <span class="nav-icon">⚙️</span>
-      <span>Adjust Balance</span>
+      <span>Manage Accounts</span>
     </div>
   </div>
   
@@ -411,60 +422,156 @@
       </div>
     </div>
 
-    <!-- ADJUST BALANCE PAGE -->
+    <!-- MANAGE ACCOUNTS PAGE (with Adjust Balance + Referrals) -->
     <div id="adjust" class="page">
-      <div class="page-title">Adjust Balance</div>
-      <div class="page-subtitle">Manual balance corrections, and manual deposits / withdrawals</div>
+      <div class="page-title">Manage Accounts</div>
+      <div class="page-subtitle">Adjust balances, create transactions, and manage referrals</div>
       
-      <div class="card form-wrap">
-        <div class="form-group">
-          <label>Select Client</label>
-          <select id="adjustClient" onchange="updateAdjustCurrentValue()">
-            <option value="">— Select client —</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>Field to Adjust</label>
-          <select id="adjustField" onchange="updateAdjustCurrentValue()">
-            <option value="balance">Balance (direct ledger nudge)</option>
-            <option value="equity">Equity (direct ledger nudge)</option>
-            <option value="total_deposits">Total Deposits (creates a real deposit)</option>
-            <option value="total_withdrawals">Total Withdrawals (creates a real withdrawal)</option>
-            <option value="total_profit">Trade Profit</option>
-            <option value="total_ref_earned">Referral Earnings</option>
-          </select>
-        </div>
-        <div id="adjustCurrentVal" style="font-size:11px;color:#6b7280;margin:-8px 0 14px;">Current value: —</div>
+      <div class="tab-group">
+        <button class="tab-btn active" onclick="switchAdjustTab('balance', this)">💰 Balance & Transactions</button>
+        <button class="tab-btn" onclick="switchAdjustTab('referral', this)">🎁 Create Referral</button>
+      </div>
 
-        <div class="form-group" id="adjustMethodGroup" style="display:none;">
-          <label>Method / Network</label>
-          <select id="adjustMethod">
-            <option value="MANUAL">Manual / Cash</option>
-            <option value="TRC20">USDT — TRC20</option>
-            <option value="BEP20">USDT — BEP20</option>
-            <option value="ERC20">USDT — ERC20</option>
-            <option value="MPESA">M-Pesa</option>
-          </select>
-        </div>
+      <!-- TAB 1: BALANCE & TRANSACTIONS -->
+      <div id="balanceTab" class="tab-content active">
+        <div class="card form-wrap">
+          <div class="form-group">
+            <label>Select Client</label>
+            <select id="adjustClient" onchange="updateAdjustCurrentValue()">
+              <option value="">— Select client —</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Field to Adjust</label>
+            <select id="adjustField" onchange="updateAdjustCurrentValue()">
+              <option value="balance">Balance (direct ledger nudge)</option>
+              <option value="equity">Equity (direct ledger nudge)</option>
+              <option value="total_deposits">Total Deposits (creates a real deposit)</option>
+              <option value="total_withdrawals">Total Withdrawals (creates a real withdrawal)</option>
+              <option value="total_profit">Trade Profit</option>
+              <option value="total_ref_earned">Referral Earnings</option>
+            </select>
+          </div>
+          <div id="adjustCurrentVal" style="font-size:11px;color:#6b7280;margin:-8px 0 14px;">Current value: —</div>
 
-        <div class="form-group">
-          <label id="adjustAmountLabel">Amount (positive = add, negative = subtract)</label>
-          <input type="number" id="adjustAmount" placeholder="e.g. 500 or -200">
+          <div class="form-group" id="adjustMethodGroup" style="display:none;">
+            <label>Method / Network</label>
+            <select id="adjustMethod">
+              <option value="MANUAL">Manual / Cash</option>
+              <option value="TRC20">USDT — TRC20</option>
+              <option value="BEP20">USDT — BEP20</option>
+              <option value="ERC20">USDT — ERC20</option>
+              <option value="MPESA">M-Pesa</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label id="adjustAmountLabel">Amount (positive = add, negative = subtract)</label>
+            <input type="number" id="adjustAmount" placeholder="e.g. 500 or -200">
+          </div>
+          <div class="form-group">
+            <label>Reason / Note</label>
+            <textarea id="adjustNote" placeholder="e.g. Profit credit, Bonus, Correction..."></textarea>
+          </div>
+          <div class="alert alert-success" id="adjustSuccess"></div>
+          <div class="alert alert-error" id="adjustError"></div>
+          <button class="btn btn-primary" style="width:100%;" onclick="submitAdjust()">Apply Adjustment</button>
         </div>
-        <div class="form-group">
-          <label>Reason / Note</label>
-          <textarea id="adjustNote" placeholder="e.g. Profit credit, Bonus, Correction..."></textarea>
+      </div>
+
+      <!-- TAB 2: CREATE REFERRAL -->
+      <div id="referralTab" class="tab-content">
+        <div class="card form-wrap">
+          <div class="form-group">
+            <label>🎯 Referrer (the person earning)</label>
+            <select id="refReferrer" onchange="onReferrerChange()">
+              <option value="">— Select a referrer —</option>
+            </select>
+          </div>
+
+          <div style="padding:16px; background:rgba(212,175,55,0.08); border:1px solid var(--border-subtle); border-radius:8px; margin-bottom:16px;">
+            <div style="font-size:12px; font-weight:600; margin-bottom:12px; color:var(--primary-gold);">Who is being referred?</div>
+            <label class="checkbox-group">
+              <input type="radio" name="refMode" value="existing" onchange="onRefModeChange()" checked>
+              <span style="flex:1;">Link Existing Client</span>
+            </label>
+            <label class="checkbox-group" style="margin-top:8px;">
+              <input type="radio" name="refMode" value="new" onchange="onRefModeChange()">
+              <span style="flex:1;">Create New Member</span>
+            </label>
+          </div>
+
+          <!-- EXISTING CLIENT MODE -->
+          <div id="existingClientMode">
+            <div class="form-group">
+              <label>👤 Select Referred Client</label>
+              <select id="refReferred">
+                <option value="">— Select client to refer —</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- NEW MEMBER MODE -->
+          <div id="newMemberMode" style="display:none;">
+            <div class="form-group">
+              <label>👤 New Member Name</label>
+              <input type="text" id="refNewName" placeholder="Full name">
+            </div>
+            <div class="form-group">
+              <label>📧 Email Address</label>
+              <input type="email" id="refNewEmail" placeholder="email@example.com">
+            </div>
+            <div class="form-group">
+              <label>📱 Phone Number</label>
+              <input type="text" id="refNewPhone" placeholder="+254 7xx xxx xxx">
+            </div>
+            <div class="form-group">
+              <label>🔐 Password</label>
+              <input type="password" id="refNewPassword" placeholder="Min 6 characters">
+            </div>
+          </div>
+
+          <!-- DEPOSIT OPTIONS -->
+          <div style="padding:16px; background:rgba(212,175,55,0.08); border:1px solid var(--border-subtle); border-radius:8px; margin-bottom:16px;">
+            <label class="checkbox-group">
+              <input type="checkbox" id="refCreateDeposit" onchange="onRefDepositToggle()">
+              <span style="flex:1;">💵 Add Initial Deposit</span>
+            </label>
+          </div>
+
+          <div id="refDepositSection" style="display:none;">
+            <div class="form-group">
+              <label>Deposit Amount (USD)</label>
+              <input type="number" id="refDepositAmount" placeholder="e.g. 500" min="0">
+            </div>
+            <div class="form-group">
+              <label>Deposit Method</label>
+              <select id="refDepositMethod">
+                <option value="MANUAL">Manual / Cash</option>
+                <option value="TRC20">USDT — TRC20</option>
+                <option value="BEP20">USDT — BEP20</option>
+                <option value="ERC20">USDT — ERC20</option>
+                <option value="MPESA">M-Pesa</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>📝 Note</label>
+            <textarea id="refNote" placeholder="e.g. Test referral, Team member..."></textarea>
+          </div>
+
+          <div class="alert alert-success" id="refSuccess"></div>
+          <div class="alert alert-error" id="refError"></div>
+          <button class="btn btn-primary" style="width:100%;" onclick="submitReferral()">✓ Create Referral</button>
         </div>
-        <div class="alert alert-success" id="adjustSuccess"></div>
-        <div class="alert alert-error" id="adjustError"></div>
-        <button class="btn btn-primary" style="width:100%;" onclick="submitAdjust()">Apply Adjustment</button>
       </div>
     </div>
 
   </div>
 </div>
 
-<!-- MODALS (unchanged structure, just adding modal overlay closes) -->
+<!-- MODALS (existing modals stay the same...) -->
 <div class="modal-overlay" id="approveModal">
   <div class="modal">
     <h3>✓ Approve Deposit</h3>
@@ -614,6 +721,17 @@ function closeSidebarOnMobile() {
   }
 }
 
+// TAB SWITCHING
+function switchAdjustTab(tabName, el) {
+  document.querySelectorAll('#adjust .tab-content').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('#adjust .tab-btn').forEach(b => b.classList.remove('active'));
+  
+  if (tabName === 'balance') document.getElementById('balanceTab').classList.add('active');
+  if (tabName === 'referral') document.getElementById('referralTab').classList.add('active');
+  
+  el.classList.add('active');
+}
+
 // PAGE NAVIGATION
 function openPage(pageName, el) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
@@ -622,7 +740,7 @@ function openPage(pageName, el) {
   document.getElementById(pageName).classList.add('active');
   el.classList.add('active');
   
-  const titles = { dashboard: 'Dashboard', deposits: 'Pending Deposits', withdrawals: 'Pending Withdrawals', clients: 'Clients', transactions: 'Transactions', referrals: 'Referrals', trades: 'Trades', adjust: 'Adjust Balance' };
+  const titles = { dashboard: 'Dashboard', deposits: 'Pending Deposits', withdrawals: 'Pending Withdrawals', clients: 'Clients', transactions: 'Transactions', referrals: 'Referrals', trades: 'Trades', adjust: 'Manage Accounts' };
   document.getElementById('pageHeader').textContent = titles[pageName];
   activeTab = pageName;
   closeSidebarOnMobile();
@@ -633,7 +751,7 @@ function openPage(pageName, el) {
   if (pageName === 'transactions') renderTx(allTx);
   if (pageName === 'referrals') loadReferrals();
   if (pageName === 'trades') loadTrades();
-  if (pageName === 'adjust') populateAdjustClients();
+  if (pageName === 'adjust') { populateAdjustClients(); populateRefReferrers(); populateRefReferred(); }
 }
 
 function showSuccess(msg, id='globalSuccess') {
@@ -862,7 +980,10 @@ async function runTradesNow() {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
 // ADJUST BALANCE
+// ═══════════════════════════════════════════════════════════════════════════
+
 const adjustFieldLabels = { balance: 'Balance', equity: 'Equity', total_deposits: 'Total Deposits', total_withdrawals: 'Total Withdrawals', total_profit: 'Trade Profit', total_ref_earned: 'Referral Earnings' };
 const TX_CREATING_FIELDS = ['total_deposits', 'total_withdrawals'];
 
@@ -932,6 +1053,119 @@ async function submitAdjust() {
   document.getElementById('adjustNote').value = '';
   await refreshData();
   updateAdjustCurrentValue();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// REFERRAL CREATION
+// ═══════════════════════════════════════════════════════════════════════════
+
+function populateRefReferrers() {
+  const sel = document.getElementById('refReferrer');
+  sel.innerHTML = '<option value="">— Select a referrer —</option>';
+  allClients.forEach(c => {
+    const opt = document.createElement('option');
+    opt.value = c.id;
+    opt.textContent = `${c.name} (${c.email})`;
+    sel.appendChild(opt);
+  });
+}
+
+function populateRefReferred() {
+  const sel = document.getElementById('refReferred');
+  sel.innerHTML = '<option value="">— Select client to refer —</option>';
+  allClients.forEach(c => {
+    const opt = document.createElement('option');
+    opt.value = c.id;
+    opt.textContent = `${c.name} (${c.email}) — $${fmt(c.balance)}`;
+    sel.appendChild(opt);
+  });
+}
+
+function onReferrerChange() {
+  populateRefReferred();
+}
+
+function onRefModeChange() {
+  const mode = document.querySelector('input[name="refMode"]:checked').value;
+  document.getElementById('existingClientMode').style.display = mode === 'existing' ? 'block' : 'none';
+  document.getElementById('newMemberMode').style.display = mode === 'new' ? 'block' : 'none';
+}
+
+function onRefDepositToggle() {
+  const checked = document.getElementById('refCreateDeposit').checked;
+  document.getElementById('refDepositSection').style.display = checked ? 'block' : 'none';
+}
+
+async function submitReferral() {
+  const referrer_id = document.getElementById('refReferrer').value;
+  const mode = document.querySelector('input[name="refMode"]:checked').value;
+  const create_deposit = document.getElementById('refCreateDeposit').checked;
+  const deposit_amount = parseFloat(document.getElementById('refDepositAmount').value || 0);
+  const deposit_method = document.getElementById('refDepositMethod').value;
+  const note = document.getElementById('refNote').value.trim();
+
+  // Clear error and success messages
+  document.getElementById('refError').classList.remove('show');
+  document.getElementById('refSuccess').classList.remove('show');
+
+  if (!referrer_id) { showError('Select a referrer', 'refError'); return; }
+  if (create_deposit && deposit_amount <= 0) { showError('Deposit amount must be greater than 0', 'refError'); return; }
+
+  let d;
+
+  if (mode === 'existing') {
+    const referred_id = document.getElementById('refReferred').value;
+    if (!referred_id) { showError('Select a referred client', 'refError'); return; }
+    
+    d = await post('/api/admin/create-referral', {
+      referrer_id,
+      referred_id,
+      note,
+      create_deposit,
+      deposit_amount,
+      deposit_method
+    });
+
+  } else {
+    const name = document.getElementById('refNewName').value.trim();
+    const email = document.getElementById('refNewEmail').value.trim();
+    const phone = document.getElementById('refNewPhone').value.trim();
+    const password = document.getElementById('refNewPassword').value;
+
+    if (!name) { showError('Enter member name', 'refError'); return; }
+    if (!email) { showError('Enter email address', 'refError'); return; }
+    if (!password) { showError('Enter password (min 6 chars)', 'refError'); return; }
+    if (password.length < 6) { showError('Password must be at least 6 characters', 'refError'); return; }
+
+    d = await post('/api/admin/create-referral-member', {
+      referrer_id,
+      name,
+      email,
+      phone,
+      password,
+      note,
+      create_deposit,
+      deposit_amount,
+      deposit_method
+    });
+  }
+
+  if (!d.success) { showError(d.error, 'refError'); return; }
+  showSuccess(d.data.message, 'refSuccess');
+  
+  // Clear form
+  document.getElementById('refReferrer').value = '';
+  document.getElementById('refReferred').value = '';
+  document.getElementById('refNewName').value = '';
+  document.getElementById('refNewEmail').value = '';
+  document.getElementById('refNewPhone').value = '';
+  document.getElementById('refNewPassword').value = '';
+  document.getElementById('refCreateDeposit').checked = false;
+  document.getElementById('refDepositAmount').value = '';
+  document.getElementById('refNote').value = '';
+  document.getElementById('refDepositSection').style.display = 'none';
+  
+  await refreshData();
 }
 
 // MODALS
@@ -1079,7 +1313,7 @@ async function refreshData() {
   if (activeTab === 'clients') renderClients(allClients);
   if (activeTab === 'transactions') renderTx(allTx);
   if (activeTab === 'dashboard') buildCharts(allTx, allClients);
-  if (activeTab === 'adjust') populateAdjustClients();
+  if (activeTab === 'adjust') { populateAdjustClients(); populateRefReferrers(); populateRefReferred(); }
 }
 
 async function init() {
@@ -1094,6 +1328,8 @@ async function init() {
   renderPending(allTx);
   buildCharts(allTx, allClients);
   populateAdjustClients();
+  populateRefReferrers();
+  populateRefReferred();
   
   setInterval(refreshData, 60000);
 }
