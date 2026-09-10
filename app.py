@@ -1733,6 +1733,217 @@ def admin_reset_client_password(uid):
     log.info(f"Admin reset password for client {u['email']}")
     return ok({"message": f"Password reset for {u['name']}"})
 
+# ── ADMIN REFERRAL: CREATE REFERRAL (Link Existing Users) ──────────────────────
+@app.route("/api/admin/create-referral", methods=["POST"])
+@admin_required
+def admin_create_referral():
+    """Create a manual referral relationship between two users."""
+    d = request.json or {}
+    referrer_id = d.get("referrer_id", "").strip()
+    referred_id = d.get("referred_id", "").strip()
+    note = d.get("note", "Manual referral creation").strip()
+    create_deposit = bool(d.get("create_deposit", False))
+    deposit_amount = float(d.get("deposit_amount", 0))
+    deposit_method = d.get("deposit_method", "MANUAL").upper()
+
+    if not referrer_id or not referred_id:
+        return err("referrer_id and referred_id are required")
+    
+    if referrer_id == referred_id:
+        return err("Referrer and referred user must be different")
+
+    conn = get_db()
+    cur = conn.cursor()
+
+    cur.execute("SELECT id, name FROM users WHERE id=%s AND role='client'", (referrer_id,))
+    referrer = cur.fetchone()
+    if not referrer:
+        cur.close(); conn.close()
+        return err("Referrer not found or not a client", 404)
+
+    cur.execute("SELECT id, name FROM users WHERE id=%s AND role='client'", (referred_id,))
+    referred = cur.fetchone()
+    if not referred:
+        cur.close(); conn.close()
+        return err("Referred user not found or not a client", 404)
+
+    cur.execute(
+        "SELECT id FROM referrals WHERE referrer_id=%s AND referred_id=%s",
+        (referrer_id, referred_id)
+    )
+    if cur.fetchone():
+        cur.close(); conn.close()
+        return err("Referral already exists between these users", 400)
+
+    try:
+        ref_id = _uid()
+        cur.execute(
+            "INSERT INTO referrals(id, referrer_id, referred_id, commission_usd, "
+            "status, triggered_by, created_at) VALUES(%s, %s, %s, 0, 'CREDITED', %s, %s)",
+            (ref_id, referrer_id, referred_id, "MANUAL-" + ref_id[:8], _now())
+        )
+
+        if create_deposit and deposit_amount > 0:
+            cur.execute("SELECT id FROM accounts WHERE user_id=%s", (referred_id,))
+            acct = cur.fetchone()
+            if not acct:
+                cur.close(); conn.close()
+                return err("Referred user has no account", 400)
+
+            tx_ref = "DEP-" + secrets.token_hex(4).upper()
+            tx_id = _uid()
+            dep_note = f"Manual deposit — {note}"
+
+            cur.execute(
+                "INSERT INTO transactions(id, user_id, account_id, type, method, "
+                "amount_usd, reference, status, note, created_at, completed_at) "
+                "VALUES(%s, %s, %s, 'DEPOSIT', %s, %s, %s, 'COMPLETED', %s, %s, %s)",
+                (tx_id, referred_id, acct["id"], deposit_method, deposit_amount, 
+                 tx_ref, dep_note, _now(), _now())
+            )
+
+            cur.execute(
+                "UPDATE accounts SET balance=balance+%s, equity=equity+%s WHERE user_id=%s",
+                (deposit_amount, deposit_amount, referred_id)
+            )
+
+            conn.commit()
+            log.info(f"Admin created referral: {referrer['name']} → {referred['name']} + ${deposit_amount} deposit")
+            return ok({
+                "message": f"Referral created: {referrer['name']} → {referred['name']} with ${deposit_amount} deposit"
+            })
+        else:
+            conn.commit()
+            log.info(f"Admin created referral: {referrer['name']} → {referred['name']}")
+            return ok({
+                "message": f"Referral created: {referrer['name']} → {referred['name']}"
+            })
+
+    except Exception as e:
+        conn.rollback()
+        log.error(f"Create referral failed: {e}")
+        return err(f"Failed to create referral: {str(e)}", 500)
+    finally:
+        cur.close()
+        conn.close()
+
+# ── ADMIN REFERRAL: CREATE REFERRAL MEMBER (Create New User + Link) ────────────
+@app.route("/api/admin/create-referral-member", methods=["POST"])
+@admin_required
+def admin_create_referral_member():
+    """Create a new client account linked directly to a referrer."""
+    d = request.json or {}
+    referrer_id = d.get("referrer_id", "").strip()
+    name = d.get("name", "").strip()
+    email = d.get("email", "").lower().strip()
+    phone = d.get("phone", "").strip()
+    password = d.get("password", "")
+    create_deposit = bool(d.get("create_deposit", False))
+    deposit_amount = float(d.get("deposit_amount", 0))
+    deposit_method = d.get("deposit_method", "MANUAL").upper()
+    note = d.get("note", "Admin-created referral member").strip()
+
+    if not referrer_id or not name or not email or not password:
+        return err("referrer_id, name, email, and password are required")
+    
+    if len(password) < 6:
+        return err("Password must be at least 6 characters")
+
+    conn = get_db()
+    cur = conn.cursor()
+
+    cur.execute("SELECT id, name FROM users WHERE id=%s AND role='client'", (referrer_id,))
+    referrer = cur.fetchone()
+    if not referrer:
+        cur.close(); conn.close()
+        return err("Referrer not found or not a client", 404)
+
+    cur.execute("SELECT id FROM users WHERE email=%s", (email,))
+    if cur.fetchone():
+        cur.close(); conn.close()
+        return err("Email already registered", 409)
+
+    try:
+        user_id = _uid()
+        account_id = _uid()
+        now = _now()
+        referral_code = secrets.token_hex(4).upper()
+
+        cur.execute(
+            "INSERT INTO users(id, name, email, phone, password_hash, pin_hash, "
+            "role, referral_code, referred_by, created_at) "
+            "VALUES(%s, %s, %s, %s, %s, %s, 'client', %s, %s, %s)",
+            (user_id, name, email, phone, _hash(password), _hash("000000"), 
+             referral_code, referrer_id, now)
+        )
+
+        cur.execute(
+            "INSERT INTO accounts(id, user_id, balance, equity, ref_balance, created_at) "
+            "VALUES(%s, %s, 0, 0, 0, %s)",
+            (account_id, user_id, now)
+        )
+
+        ref_id = _uid()
+        cur.execute(
+            "INSERT INTO referrals(id, referrer_id, referred_id, commission_usd, "
+            "status, triggered_by, created_at) VALUES(%s, %s, %s, 0, 'CREDITED', %s, %s)",
+            (ref_id, referrer_id, user_id, "ADMIN-" + ref_id[:8], now)
+        )
+
+        if create_deposit and deposit_amount > 0:
+            tx_ref = "DEP-" + secrets.token_hex(4).upper()
+            tx_id = _uid()
+            dep_note = f"Initial deposit — {note}"
+
+            cur.execute(
+                "INSERT INTO transactions(id, user_id, account_id, type, method, "
+                "amount_usd, reference, status, note, created_at, completed_at) "
+                "VALUES(%s, %s, %s, 'DEPOSIT', %s, %s, %s, 'COMPLETED', %s, %s, %s)",
+                (tx_id, user_id, account_id, deposit_method, deposit_amount, 
+                 tx_ref, dep_note, now, now)
+            )
+
+            cur.execute(
+                "UPDATE accounts SET balance=balance+%s, equity=equity+%s WHERE user_id=%s",
+                (deposit_amount, deposit_amount, user_id)
+            )
+
+            conn.commit()
+            log.info(f"Admin created referral member: {name} ({email}) → {referrer['name']} + ${deposit_amount} deposit")
+            return ok({
+                "message": f"Member {name} created and linked to {referrer['name']} with ${deposit_amount} deposit",
+                "data": {
+                    "user_id": user_id,
+                    "email": email,
+                    "referral_code": referral_code,
+                    "balance": deposit_amount
+                }
+            })
+        else:
+            conn.commit()
+            log.info(f"Admin created referral member: {name} ({email}) → {referrer['name']}")
+            return ok({
+                "message": f"Member {name} created and linked to {referrer['name']}",
+                "data": {
+                    "user_id": user_id,
+                    "email": email,
+                    "referral_code": referral_code,
+                    "balance": 0
+                }
+            })
+
+    except psycopg2.errors.UniqueViolation:
+        conn.rollback()
+        cur.close(); conn.close()
+        return err("Email already registered", 409)
+    except Exception as e:
+        conn.rollback()
+        log.error(f"Create referral member failed: {e}")
+        return err(f"Failed to create member: {str(e)}", 500)
+    finally:
+        cur.close()
+        conn.close()
+
 @app.route("/api/admin/trade/run", methods=["POST"])
 @admin_required
 def admin_run_trades():
