@@ -90,7 +90,7 @@ if MPESA_ENV == "production":
 else:
     MPESA_BASE_URL = "https://sandbox.safaricom.co.ke"
 
-REFERRAL_COMMISSION_PCT = float(os.environ.get("REFERRAL_COMMISSION_PCT", "10.0"))  # Admin can set via env
+REFERRAL_COMMISSION_PCT = float(os.environ.get("REFERRAL_COMMISSION_PCT", "0.0"))  # Admin must set via env or API
 REFERRAL_MIN_DEPOSIT    = float(os.environ.get("REFERRAL_MIN_DEPOSIT", "250.0"))
 
 # ── DATABASE ──────────────────────────────────────────────────────────────────
