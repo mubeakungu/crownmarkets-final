@@ -1,2285 +1,629 @@
-import os, hashlib, secrets, datetime, uuid, logging, threading, random, base64, math
-import psycopg2
-import psycopg2.extras
-import requests as http_requests
-from flask import Flask, request, jsonify, session, redirect, render_template
-from flask_cors import CORS
+"""
+Crown Markets Trading Platform
+Full Flask App with Referral System
+"""
+
+import os
+import uuid
+from datetime import datetime, timedelta
 from functools import wraps
+from decimal import Decimal
 
-try:
-    from binance.client import Client
-    BINANCE_AVAILABLE = True
-except ImportError:
-    BINANCE_AVAILABLE = False
-    Client = None
+from flask import Flask, render_template, request, jsonify, session, redirect, url_for
+from flask_sqlalchemy import SQLAlchemy
+from werkzeug.security import generate_password_hash, check_password_hash
+import requests
+from dotenv import load_dotenv
 
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except ImportError:
-    pass
+load_dotenv()
 
-app = Flask(__name__, static_folder='static', template_folder='templates')
-app.secret_key = os.environ.get("SECRET_KEY", "summit-2025")
-app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
-app.config['SESSION_COOKIE_SECURE']   = False
+app = Flask(__name__)
+
+# ════════════════════════════════════════════════════════════════════════════
+# CONFIGURATION
+# ════════════════════════════════════════════════════════════════════════════
+app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv(
+    'DATABASE_URL',
+    'postgresql://user:password@localhost/crown_markets'
+)
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'your-secret-key-change-in-production')
+app.config['SESSION_COOKIE_SECURE'] = True
 app.config['SESSION_COOKIE_HTTPONLY'] = True
-CORS(app, supports_credentials=True)
-logging.basicConfig(level=logging.INFO)
-log = logging.getLogger("summit")
 
-# ── BINANCE ───────────────────────────────────────────────────────────────────
-api_key    = os.environ.get("BINANCE_API_KEY")
-api_secret = os.environ.get("BINANCE_API_SECRET")
+# ════════════════════════════════════════════════════════════════════════════
+# REFERRAL & COMMISSION SETTINGS
+# ════════════════════════════════════════════════════════════════════════════
+REFERRAL_COMMISSION_PCT = 0.15  # ✓ 15% commission (ENABLED)
+MIN_DEPOSIT_FOR_COMMISSION = 250  # $250 minimum
+MIN_REFERRAL_WITHDRAWAL = 16  # $16 minimum
+REFERRAL_CODE_LENGTH = 8
 
-def make_binance_client():
-    if not (BINANCE_AVAILABLE and api_key and api_secret):
-        log.warning("Binance: API keys not configured")
-        return None
-    try:
-        client = Client(api_key, api_secret)
-        log.info("Binance connected ✓")
-        return client
-    except Exception as e:
-        log.warning(f"Binance connection failed: {e}")
-        return None
+# M-Pesa Settings (for Kenya)
+MPESA_CONSUMER_KEY = os.getenv('MPESA_CONSUMER_KEY', '')
+MPESA_CONSUMER_SECRET = os.getenv('MPESA_CONSUMER_SECRET', '')
+MPESA_SHORTCODE = os.getenv('MPESA_SHORTCODE', '174379')
+MPESA_PASSKEY = os.getenv('MPESA_PASSKEY', '')
 
-bnb = make_binance_client()
+db = SQLAlchemy(app)
 
-# ── CONFIG ────────────────────────────────────────────────────────────────────
-DATABASE_URL = os.environ.get("DATABASE_URL")
-if not DATABASE_URL:
-    raise RuntimeError("DATABASE_URL environment variable is not set!")
+# ════════════════════════════════════════════════════════════════════════════
+# DATABASE MODELS
+# ════════════════════════════════════════════════════════════════════════════
 
-DAILY_PROFIT_USD    = float(os.environ.get("DAILY_PROFIT_USD", "3.5"))
-MIN_BALANCE         = float(os.environ.get("MIN_BALANCE", "250.0"))
-MIN_WITHDRAWAL      = float(os.environ.get("MIN_WITHDRAWAL", "30.0"))
-TRADE_HOUR          = int(os.environ.get("TRADE_HOUR", "5"))
-TRADE_SYMBOL        = os.environ.get("TRADE_SYMBOL", "BTCUSDT")
-CHECK_INTERVAL      = 60
+class User(db.Model):
+    __tablename__ = 'users'
+    
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    name = db.Column(db.String(255), nullable=False)
+    email = db.Column(db.String(255), unique=True, nullable=False, index=True)
+    phone = db.Column(db.String(20), nullable=False)
+    pin_hash = db.Column(db.String(255), nullable=False)
+    password_hash = db.Column(db.String(255), nullable=False)
+    is_admin = db.Column(db.Boolean, default=False)
+    is_active = db.Column(db.Boolean, default=True)
+    kyc_verified = db.Column(db.Boolean, default=False)
+    
+    # Balances
+    deposit_balance = db.Column(db.Numeric(15, 2), default=0)
+    ref_balance = db.Column(db.Numeric(15, 2), default=0)
+    
+    # Referral tracking
+    referrer_id = db.Column(db.String(36), db.ForeignKey('users.id'), nullable=True)
+    referral_code = db.Column(db.String(REFERRAL_CODE_LENGTH), unique=True, index=True)
+    
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    referrals = db.relationship('Referral', foreign_keys='Referral.referrer_id', backref='referrer')
+    transactions = db.relationship('Transaction', backref='user', lazy='dynamic')
+    
+    def set_password(self, password):
+        self.password_hash = generate_password_hash(password)
+    
+    def check_password(self, password):
+        return check_password_hash(self.password_hash, password)
+    
+    def set_pin(self, pin):
+        self.pin_hash = generate_password_hash(pin)
+    
+    def check_pin(self, pin):
+        return check_password_hash(self.pin_hash, pin)
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'email': self.email,
+            'phone': self.phone,
+            'deposit_balance': float(self.deposit_balance),
+            'ref_balance': float(self.ref_balance),
+            'referral_code': self.referral_code,
+            'is_admin': self.is_admin,
+            'kyc_verified': self.kyc_verified,
+            'created_at': self.created_at.isoformat()
+        }
 
-# ── DEPOSIT PACKAGES ──────────────────────────────────────────────────────────
-DEPOSIT_PACKAGES = [250, 500, 750, 1000, 1250, 1500, 1750, 2000]
 
-# ── NETWORKS & WALLETS ────────────────────────────────────────────────────────
-NETWORKS = {
-    "TRC20": {"network": "TRX"},
-    "BEP20": {"network": "BSC"},
-    "ERC20": {"network": "ETH"},
-    "MPESA": {"network": "MPESA"},
-}
-MANUAL_WALLETS = {
-    "TRC20": os.environ.get("WALLET_TRC20", ""),
-    "BEP20": os.environ.get("WALLET_BEP20", ""),
-    "ERC20": os.environ.get("WALLET_ERC20", ""),
-}
+class Referral(db.Model):
+    __tablename__ = 'referrals'
+    
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    referrer_id = db.Column(db.String(36), db.ForeignKey('users.id'), nullable=False, index=True)
+    referred_id = db.Column(db.String(36), db.ForeignKey('users.id'), nullable=False, index=True)
+    
+    status = db.Column(db.String(20), default='PENDING')  # PENDING, CREDITED, CANCELLED
+    commission_amount = db.Column(db.Numeric(15, 2), default=0)
+    commission_pct = db.Column(db.Numeric(5, 2), default=REFERRAL_COMMISSION_PCT)
+    
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    credited_at = db.Column(db.DateTime, nullable=True)
+    
+    referred_user = db.relationship('User', foreign_keys=[referred_id], backref='referred_by_rel')
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'referrer_id': self.referrer_id,
+            'referred_name': self.referred_user.name,
+            'referred_email': self.referred_user.email,
+            'status': self.status,
+            'commission_amount': float(self.commission_amount),
+            'commission_pct': float(self.commission_pct),
+            'created_at': self.created_at.isoformat()
+        }
 
-# ── DARAJA / M-PESA STK PUSH ──────────────────────────────────────────────────
-MPESA_ENV             = os.environ.get("MPESA_ENV", "sandbox")
-MPESA_CONSUMER_KEY    = os.environ.get("MPESA_CONSUMER_KEY", "")
-MPESA_CONSUMER_SECRET = os.environ.get("MPESA_CONSUMER_SECRET", "")
-MPESA_SHORTCODE       = os.environ.get("MPESA_SHORTCODE", "174379")
-MPESA_PASSKEY         = os.environ.get("MPESA_PASSKEY", "")
-MPESA_CALLBACK_URL    = os.environ.get("MPESA_CALLBACK_URL", "https://sumitwealthfx.space/mpesa/callback")
 
-# Exchange rate: KES per USD
-KES_PER_USD = float(os.environ.get("KES_PER_USD", "129.0"))
+class Deposit(db.Model):
+    __tablename__ = 'deposits'
+    
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = db.Column(db.String(36), db.ForeignKey('users.id'), nullable=False, index=True)
+    
+    amount = db.Column(db.Numeric(15, 2), nullable=False)
+    currency = db.Column(db.String(10), default='USD')
+    payment_method = db.Column(db.String(50))  # mpesa, crypto, card, etc.
+    
+    status = db.Column(db.String(20), default='PENDING')  # PENDING, APPROVED, REJECTED, COMPLETED
+    reference = db.Column(db.String(255), unique=True)
+    
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    approved_at = db.Column(db.DateTime, nullable=True)
+    
+    user = db.relationship('User', backref='deposits')
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'amount': float(self.amount),
+            'currency': self.currency,
+            'payment_method': self.payment_method,
+            'status': self.status,
+            'reference': self.reference,
+            'created_at': self.created_at.isoformat()
+        }
 
-if MPESA_ENV == "production":
-    MPESA_BASE_URL = "https://api.safaricom.co.ke"
-else:
-    MPESA_BASE_URL = "https://sandbox.safaricom.co.ke"
 
-REFERRAL_COMMISSION_PCT = float(os.environ.get("REFERRAL_COMMISSION_PCT", "10.0"))  # Admin can set via env
-REFERRAL_MIN_DEPOSIT    = float(os.environ.get("REFERRAL_MIN_DEPOSIT", "250.0"))
+class Transaction(db.Model):
+    __tablename__ = 'transactions'
+    
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = db.Column(db.String(36), db.ForeignKey('users.id'), nullable=False, index=True)
+    
+    type = db.Column(db.String(50), nullable=False)  # DEPOSIT, REFERRAL_COMMISSION, WITHDRAWAL, etc.
+    amount = db.Column(db.Numeric(15, 2), nullable=False)
+    balance_before = db.Column(db.Numeric(15, 2))
+    balance_after = db.Column(db.Numeric(15, 2))
+    description = db.Column(db.String(255))
+    reference = db.Column(db.String(255))
+    
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'type': self.type,
+            'amount': float(self.amount),
+            'balance_after': float(self.balance_after),
+            'description': self.description,
+            'created_at': self.created_at.isoformat()
+        }
 
-# ── DATABASE ──────────────────────────────────────────────────────────────────
-def get_db():
-    conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
-    return conn
 
-def init_db():
-    conn = get_db()
-    cur  = conn.cursor()
-    cur.execute("""
-CREATE TABLE IF NOT EXISTS users (
-    id            TEXT PRIMARY KEY,
-    name          TEXT,
-    email         TEXT UNIQUE,
-    phone         TEXT,
-    password_hash TEXT,
-    pin_hash      TEXT,
-    role          TEXT DEFAULT 'client',
-    referral_code TEXT UNIQUE,
-    referred_by   TEXT,
-    created_at    TEXT
-);
-CREATE TABLE IF NOT EXISTS accounts (
-    id          TEXT PRIMARY KEY,
-    user_id     TEXT,
-    balance     REAL DEFAULT 0,
-    equity      REAL DEFAULT 0,
-    ref_balance REAL DEFAULT 0,
-    created_at  TEXT
-);
-CREATE TABLE IF NOT EXISTS transactions (
-    id              TEXT PRIMARY KEY,
-    user_id         TEXT,
-    account_id      TEXT,
-    type            TEXT,
-    method          TEXT,
-    amount_usd      REAL,
-    reference       TEXT,
-    status          TEXT DEFAULT 'PENDING',
-    note            TEXT,
-    created_at      TEXT,
-    completed_at    TEXT,
-    binance_tx_id   TEXT,
-    deposit_address TEXT
-);
-CREATE TABLE IF NOT EXISTS referrals (
-    id             TEXT PRIMARY KEY,
-    referrer_id    TEXT,
-    referred_id    TEXT,
-    commission_usd REAL DEFAULT 0,
-    status         TEXT DEFAULT 'CREDITED',
-    triggered_by   TEXT,
-    created_at     TEXT
-);
-CREATE TABLE IF NOT EXISTS trades (
-    id           TEXT PRIMARY KEY,
-    user_id      TEXT,
-    account_id   TEXT,
-    symbol       TEXT,
-    direction    TEXT,
-    entry_price  REAL,
-    quantity     REAL,
-    stop_loss    REAL,
-    take_profit  REAL,
-    close_price  REAL,
-    pnl          REAL DEFAULT 0,
-    status       TEXT DEFAULT 'OPEN',
-    close_reason TEXT,
-    opened_at    TEXT,
-    closed_at    TEXT
-);
-CREATE TABLE IF NOT EXISTS daily_trade_log (
-    id         TEXT PRIMARY KEY,
-    user_id    TEXT,
-    account_id TEXT,
-    trade_id   TEXT,
-    profit     REAL,
-    date       TEXT,
-    created_at TEXT
-);
-CREATE TABLE IF NOT EXISTS notifications (
-    id         TEXT PRIMARY KEY,
-    user_id    TEXT,
-    title      TEXT,
-    message    TEXT,
-    type       TEXT DEFAULT 'INFO',
-    read_at    TEXT,
-    created_at TEXT
-);
-""")
-    conn.commit()
-
-    for col, tbl, defval in [
-        ("referral_code", "users",    "''"),
-        ("referred_by",   "users",    "NULL"),
-        ("ref_balance",   "accounts", "0"),
-    ]:
-        try:
-            cur.execute(f"ALTER TABLE {tbl} ADD COLUMN {col} TEXT DEFAULT {defval}")
-        except Exception:
-            conn.rollback()
-
-    conn.commit()
-
-    try:
-        cur.execute("""
-            DELETE FROM daily_trade_log a USING daily_trade_log b
-            WHERE a.id > b.id
-              AND a.user_id = b.user_id
-              AND a.date = b.date
-        """)
-        conn.commit()
-    except Exception as e:
-        conn.rollback()
-        log.warning(f"daily_trade_log dedupe skipped: {e}")
-
-    try:
-        cur.execute("""
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_daily_trade_log_user_date
-            ON daily_trade_log(user_id, date)
-        """)
-        conn.commit()
-    except Exception as e:
-        conn.rollback()
-        log.warning(f"daily_trade_log unique index skipped: {e}")
-
-    cur.execute("SELECT id FROM users WHERE referral_code IS NULL OR referral_code=''")
-    users = cur.fetchall()
-    for u in users:
-        cur.execute("UPDATE users SET referral_code=%s WHERE id=%s",
-                    (secrets.token_hex(4).upper(), u["id"]))
-    conn.commit()
-
-    cur.execute("SELECT 1 FROM users LIMIT 1")
-    if not cur.fetchone():
-        uid  = str(uuid.uuid4())
-        uid2 = str(uuid.uuid4())
-        aid2 = str(uuid.uuid4())
-        now  = datetime.datetime.utcnow().isoformat()
-        cur.execute(
-            "INSERT INTO users(id,name,email,password_hash,pin_hash,role,"
-            "referral_code,created_at) VALUES(%s,%s,%s,%s,%s,'admin',%s,%s)",
-            (uid, "Admin", "admin@test.com",
-             hashlib.sha256(b"admin1234").hexdigest(),
-             hashlib.sha256(b"000000").hexdigest(),
-             secrets.token_hex(4).upper(), now)
-        )
-        cur.execute(
-            "INSERT INTO users(id,name,email,password_hash,pin_hash,role,"
-            "referral_code,created_at) VALUES(%s,%s,%s,%s,%s,'client',%s,%s)",
-            (uid2, "John Trader", "john@test.com",
-             hashlib.sha256(b"demo1234").hexdigest(),
-             hashlib.sha256(b"123456").hexdigest(),
-             secrets.token_hex(4).upper(), now)
-        )
-        cur.execute(
-            "INSERT INTO accounts(id,user_id,balance,equity,ref_balance,created_at) "
-            "VALUES(%s,%s,1000,1000,0,%s)",
-            (aid2, uid2, now)
-        )
-        conn.commit()
-        log.info("Demo users created: john@test.com / demo1234  |  admin@test.com / admin1234")
-
-    cur.close()
-    conn.close()
-    log.info("Database initialised ✓")
-
-# ── HELPERS ───────────────────────────────────────────────────────────────────
-def _hash(s):  return hashlib.sha256(str(s).encode()).hexdigest()
-def _uid():    return str(uuid.uuid4())
-def _now():    return datetime.datetime.utcnow().isoformat()
-def _today():  return datetime.datetime.utcnow().strftime("%Y-%m-%d")
-
-def create_notification(cur, user_id, title, message, ntype="INFO"):
-    """Insert a notification row. Caller is responsible for conn.commit()."""
-    cur.execute(
-        "INSERT INTO notifications(id,user_id,title,message,type,created_at) "
-        "VALUES(%s,%s,%s,%s,%s,%s)",
-        (_uid(), user_id, title, message, ntype, _now())
-    )
-
-def ok(data=None, **kw):
-    p = {"success": True}
-    if data is not None: p["data"] = data
-    p.update(kw)
-    return jsonify(p)
-
-def err(msg, code=400):
-    return jsonify({"success": False, "error": msg}), code
+# ════════════════════════════════════════════════════════════════════════════
+# AUTHENTICATION DECORATORS
+# ════════════════════════════════════════════════════════════════════════════
 
 def login_required(f):
     @wraps(f)
-    def dec(*a, **kw):
-        if "user_id" not in session: return err("Not logged in", 401)
-        return f(*a, **kw)
-    return dec
+    def decorated(*args, **kwargs):
+        if 'user_id' not in session:
+            return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return decorated
+
 
 def admin_required(f):
     @wraps(f)
-    def dec(*a, **kw):
-        if "user_id" not in session: return err("Not logged in", 401)
-        if session.get("role") != "admin": return err("Admin access required", 403)
-        return f(*a, **kw)
-    return dec
+    def decorated(*args, **kwargs):
+        if 'user_id' not in session:
+            return redirect(url_for('login'))
+        user = User.query.get(session['user_id'])
+        if not user or not user.is_admin:
+            return jsonify({'error': 'Admin access required'}), 403
+        return f(*args, **kwargs)
+    return decorated
 
-# ── DAILY TRADE ENGINE ────────────────────────────────────────────────────────
-def get_live_price(symbol):
-    if bnb:
-        try:
-            ticker = bnb.get_symbol_ticker(symbol=symbol)
-            price  = float(ticker["price"])
-            log.info(f"Live Binance price {symbol}: ${price:,.2f}")
-            return price
-        except Exception as e:
-            log.warning(f"Could not get live price for {symbol}: {e}")
-    fallback = {"BTCUSDT": 67500.0, "ETHUSDT": 3450.0, "BNBUSDT": 580.0}
-    price = fallback.get(symbol, 200.0)
-    log.info(f"Using fallback price {symbol}: ${price:,.2f}")
-    return price
 
-_trade_run_lock = threading.Lock()
+# ════════════════════════════════════════════════════════════════════════════
+# AUTH ROUTES
+# ════════════════════════════════════════════════════════════════════════════
 
-def run_daily_trades():
-    if not _trade_run_lock.acquire(blocking=False):
-        log.warning("run_daily_trades already in progress on this worker — skipping overlapping call")
-        return
-
-    try:
-        today = _today()
-        log.info(f"=== Daily trade run: {today} — ${DAILY_PROFIT_USD} profit per eligible client ===")
-
-        price       = get_live_price(TRADE_SYMBOL)
-        pct_gain    = random.uniform(0.003, 0.005)
-        close_price = round(price * (1 + pct_gain), 2)
-        price_diff  = close_price - price
-
-        if price_diff <= 0:
-            log.error("Price diff is zero — aborting.")
-            return
-
-        log.info(f"  Entry: ${price:,.2f} | Close: ${close_price:,.2f} | Profit: ${DAILY_PROFIT_USD}/client")
-
-        conn = get_db()
-        cur  = conn.cursor()
-        cur.execute(
-            "SELECT u.id, u.name, a.id AS account_id, a.balance, "
-            "  COALESCE((SELECT SUM(amount_usd) FROM transactions "
-            "            WHERE user_id=u.id AND type='DEPOSIT' AND status='COMPLETED'), 0) "
-            "  AS total_deposit "
-            "FROM users u JOIN accounts a ON u.id=a.user_id "
-            "WHERE u.role='client'"
-        )
-        all_clients = cur.fetchall()
-        clients = [c for c in all_clients if c["total_deposit"] >= MIN_BALANCE]
-        log.info(f"  Eligible clients (total deposits >= ${MIN_BALANCE}): {len(clients)}")
-        paid = 0
-
-        for c in clients:
-            client_profit   = DAILY_PROFIT_USD
-            client_quantity = round(client_profit / price_diff, 6)
-
-            now              = datetime.datetime.utcnow()
-            open_minutes_ago = random.randint(30, 90)
-            opened_at        = (now - datetime.timedelta(minutes=open_minutes_ago)).isoformat()
-            closed_at        = now.isoformat()
-            trade_id         = _uid()
-            sl               = round(price * 0.985, 2)
-            tp               = close_price
-
-            try:
-                cur.execute(
-                    "INSERT INTO daily_trade_log(id,user_id,account_id,trade_id,"
-                    "profit,date,created_at) VALUES(%s,%s,%s,%s,%s,%s,%s) "
-                    "ON CONFLICT (user_id, date) DO NOTHING",
-                    (_uid(), c["id"], c["account_id"], trade_id, client_profit, today, _now())
-                )
-
-                if cur.rowcount == 0:
-                    conn.commit()
-                    log.info(f"  Skipping {c['name']} — already traded today")
-                    continue
-
-                cur.execute(
-                    "INSERT INTO trades(id,user_id,account_id,symbol,direction,"
-                    "entry_price,quantity,stop_loss,take_profit,close_price,"
-                    "pnl,status,close_reason,opened_at,closed_at) "
-                    "VALUES(%s,%s,%s,%s,'BUY',%s,%s,%s,%s,%s,%s,'CLOSED','TAKE_PROFIT',%s,%s)",
-                    (trade_id, c["id"], c["account_id"],
-                     TRADE_SYMBOL, price, client_quantity, sl, tp,
-                     close_price, client_profit, opened_at, closed_at)
-                )
-                cur.execute(
-                    "UPDATE accounts SET balance=balance+%s, equity=equity+%s WHERE user_id=%s",
-                    (client_profit, client_profit, c["id"])
-                )
-                conn.commit()
-                paid += 1
-                log.info(f"  ✓ {c['name']}: +${client_profit} (total deposit: ${c['total_deposit']:,.2f}, bal: ${c['balance']:,.2f})")
-
-            except Exception as e:
-                conn.rollback()
-                log.error(f"  Trade failed for {c['name']}: {e}")
-
-        cur.close()
-        conn.close()
-        log.info(f"=== Done: {paid}/{len(clients)} clients credited ===")
-    finally:
-        _trade_run_lock.release()
-
-# ── SCHEDULER ─────────────────────────────────────────────────────────────────
-_scheduler_lock    = threading.Lock()
-_scheduler_started = False
-_scheduler_stop    = threading.Event()
-_scheduler_holder  = None
-
-def trade_scheduler(stop_event):
-    log.info(f"Scheduler started — fires at {TRADE_HOUR:02d}:00 UTC ({TRADE_HOUR+3:02d}:00 EAT)")
-    last_run_date = None
-    while not stop_event.is_set():
-        try:
-            now   = datetime.datetime.utcnow()
-            today = now.strftime("%Y-%m-%d")
-            if now.hour == TRADE_HOUR and last_run_date != today:
-                last_run_date = today
-                try:
-                    run_daily_trades()
-                except Exception as e:
-                    log.error(f"Trade run error: {e}")
-        except Exception as e:
-            log.error(f"Scheduler tick error: {e}")
-        stop_event.wait(CHECK_INTERVAL)
-    log.info("Scheduler stopped")
-
-def start_scheduler():
-    global _scheduler_started, _scheduler_holder
+@app.route('/api/auth/register', methods=['POST'])
+def register():
+    """Register new user with optional referral code"""
+    data = request.get_json()
     
-    with _scheduler_lock:
-        if _scheduler_started:
-            return
-        
-        if not _can_acquire_scheduler_lock():
-            log.info(f"[PID {os.getpid()}] Another worker holds the scheduler lock — skipping")
-            return
-        
-        _scheduler_started = True
-        _scheduler_holder = os.getpid()
-        t = threading.Thread(target=trade_scheduler, args=(_scheduler_stop,),
-                             daemon=True, name="TradeScheduler")
-        t.start()
-        log.info(f"[PID {os.getpid()}] TradeScheduler thread launched ✓")
-
-def _can_acquire_scheduler_lock():
-    lock_file = "/tmp/crown_markets_scheduler.lock"
+    # Validation
+    required = ['name', 'email', 'phone', 'password', 'pin']
+    if not all(data.get(k) for k in required):
+        return jsonify({'error': 'Missing required fields'}), 400
     
-    try:
-        import fcntl
-        f = open(lock_file, "w")
-        try:
-            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            f.write(f"{os.getpid()}\n{datetime.datetime.utcnow().isoformat()}")
-            f.flush()
-            log.info(f"[PID {os.getpid()}] Acquired scheduler lock")
-            return True
-        except (IOError, OSError):
-            f.close()
-            return False
-    except Exception as e:
-        log.warning(f"Lock check failed (will still try to start): {e}")
-        return True
-
-# ── REFERRAL ENGINE ───────────────────────────────────────────────────────────
-def process_referral_commission(tx_id, user_id, amount_usd):
-    """
-    Process referral commission on deposit.
-    If referral was already created at registration, update it.
-    If not, create it (backward compatibility).
-    """
-    if amount_usd < REFERRAL_MIN_DEPOSIT:
-        return
+    if User.query.filter_by(email=data['email']).first():
+        return jsonify({'error': 'Email already registered'}), 400
     
-    conn = get_db()
-    cur  = conn.cursor()
+    if len(data['password']) < 8:
+        return jsonify({'error': 'Password must be at least 8 characters'}), 400
     
-    cur.execute("SELECT * FROM users WHERE id=%s", (user_id,))
-    user = cur.fetchone()
-    if not user or not user["referred_by"]:
-        cur.close()
-        conn.close()
-        return
-
-    cur.execute("SELECT * FROM users WHERE id=%s", (user["referred_by"],))
-    referrer = cur.fetchone()
-    if not referrer:
-        cur.close()
-        conn.close()
-        return
-
-    # Check if referral already exists (from registration)
-    cur.execute(
-        "SELECT id, commission_usd FROM referrals WHERE referrer_id=%s AND referred_id=%s",
-        (user["referred_by"], user_id)
+    if len(data['pin']) != 6 or not data['pin'].isdigit():
+        return jsonify({'error': 'PIN must be 6 digits'}), 400
+    
+    # Create user
+    user = User(
+        name=data['name'],
+        email=data['email'],
+        phone=data['phone'],
+        referral_code=str(uuid.uuid4()).hex[:REFERRAL_CODE_LENGTH].upper()
     )
-    existing_ref = cur.fetchone()
-
-    try:
-        if existing_ref:
-            # Update existing referral: add commission, change status to CREDITED
-            commission = round(amount_usd * REFERRAL_COMMISSION_PCT, 2)
-            cur.execute(
-                "UPDATE referrals SET commission_usd=%s, status='CREDITED', "
-                "triggered_by=%s WHERE id=%s",
-                (commission, tx_id, existing_ref["id"])
-            )
-            
-            if commission > 0:
-                cur.execute(
-                    "UPDATE accounts SET ref_balance=ref_balance+%s WHERE user_id=%s",
-                    (commission, referrer["id"])
-                )
-                log.info(f"✓ Referral commission: {referrer['name']} +${commission}")
-            else:
-                log.info(f"✓ Referral confirmed (0% commission): {referrer['name']} ← {user['name']}")
-        else:
-            # Create new referral if doesn't exist (backward compatibility for old users)
-            commission = round(amount_usd * REFERRAL_COMMISSION_PCT, 2)
-            cur.execute(
-                "INSERT INTO referrals(id,referrer_id,referred_id,commission_usd,"
-                "status,triggered_by,created_at) VALUES(%s,%s,%s,%s,'CREDITED',%s,%s)",
-                (_uid(), referrer["id"], user_id, commission, tx_id, _now())
-            )
-            
-            if commission > 0:
-                cur.execute(
-                    "UPDATE accounts SET ref_balance=ref_balance+%s WHERE user_id=%s",
-                    (commission, referrer["id"])
-                )
-                log.info(f"✓ Referral commission: {referrer['name']} +${commission}")
-            else:
-                log.info(f"✓ Referral tracked (0% commission): {referrer['name']} ← {user['name']}")
-        
-        conn.commit()
-    except Exception as e:
-        conn.rollback()
-        log.warning(f"Referral commission failed: {e}")
-    finally:
-        cur.close()
-        conn.close()
-
-# ── DARAJA STK PUSH ENGINE ────────────────────────────────────────────────────
-
-def mpesa_get_token():
-    try:
-        creds = base64.b64encode(
-            f"{MPESA_CONSUMER_KEY}:{MPESA_CONSUMER_SECRET}".encode()
-        ).decode()
-        r = http_requests.get(
-            f"{MPESA_BASE_URL}/oauth/v1/generate?grant_type=client_credentials",
-            headers={"Authorization": f"Basic {creds}"},
-            timeout=15
+    user.set_password(data['password'])
+    user.set_pin(data['pin'])
+    
+    # Handle referral
+    ref_code = data.get('ref_code', '').strip().upper()
+    if ref_code:
+        referrer = User.query.filter_by(referral_code=ref_code).first()
+        if referrer:
+            user.referrer_id = referrer.id
+    
+    db.session.add(user)
+    db.session.commit()
+    
+    # Create referral record if referred
+    if user.referrer_id:
+        referral = Referral(
+            referrer_id=user.referrer_id,
+            referred_id=user.id,
+            status='PENDING'
         )
-        r.raise_for_status()
-        return r.json().get("access_token")
-    except Exception as e:
-        log.error(f"M-Pesa token error: {e}")
-        return None
+        db.session.add(referral)
+        db.session.commit()
+    
+    return jsonify({
+        'success': True,
+        'message': 'Account created successfully',
+        'user': user.to_dict()
+    }), 201
 
-def mpesa_format_phone(phone):
-    phone = phone.strip().replace(" ", "").replace("-", "")
-    if phone.startswith("+"):
-        phone = phone[1:]
-    if phone.startswith("0"):
-        phone = "254" + phone[1:]
-    if not phone.startswith("254"):
-        phone = "254" + phone
-    return phone
 
-def mpesa_stk_push(phone, amount_kes, account_ref, description):
-    token = mpesa_get_token()
-    if not token:
-        return False, "Could not connect to M-Pesa. Please try again."
+@app.route('/api/auth/login', methods=['POST'])
+def login():
+    """Login user"""
+    data = request.get_json()
+    
+    email = data.get('email', '').strip()
+    password = data.get('password', '')
+    
+    user = User.query.filter_by(email=email).first()
+    
+    if not user or not user.check_password(password):
+        return jsonify({'error': 'Invalid email or password'}), 401
+    
+    if not user.is_active:
+        return jsonify({'error': 'Account is inactive'}), 403
+    
+    session['user_id'] = user.id
+    session['is_admin'] = user.is_admin
+    
+    return jsonify({
+        'success': True,
+        'message': 'Logged in successfully',
+        'user': user.to_dict()
+    })
 
-    timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
-    password  = base64.b64encode(
-        f"{MPESA_SHORTCODE}{MPESA_PASSKEY}{timestamp}".encode()
-    ).decode()
 
-    payload = {
-        "BusinessShortCode": MPESA_SHORTCODE,
-        "Password":          password,
-        "Timestamp":         timestamp,
-        "TransactionType":   "CustomerPayBillOnline",
-        "Amount":            int(amount_kes),
-        "PartyA":            mpesa_format_phone(phone),
-        "PartyB":            MPESA_SHORTCODE,
-        "PhoneNumber":       mpesa_format_phone(phone),
-        "CallBackURL":       MPESA_CALLBACK_URL,
-        "AccountReference":  account_ref[:12],
-        "TransactionDesc":   description[:13],
-    }
-
-    try:
-        r = http_requests.post(
-            f"{MPESA_BASE_URL}/mpesa/stkpush/v1/processrequest",
-            json=payload,
-            headers={"Authorization": f"Bearer {token}"},
-            timeout=30
-        )
-        data = r.json()
-        log.info(f"STK Push response: {data}")
-
-        if data.get("ResponseCode") == "0":
-            return True, data.get("CheckoutRequestID", "")
-        else:
-            msg = data.get("errorMessage") or data.get("ResponseDescription") or "M-Pesa request failed"
-            return False, msg
-    except Exception as e:
-        log.error(f"STK Push error: {e}")
-        return False, "M-Pesa service unavailable. Please try again."
-
-# ── FAVICON ───────────────────────────────────────────────────────────────────
-@app.route("/favicon.ico")
-def favicon():
-    return "", 204
-
-# ── PAGE ROUTES ───────────────────────────────────────────────────────────────
-@app.route("/")
-def index(): 
-    return render_template("landing.html")
-
-@app.route("/login")
-def login_page(): 
-    return render_template("login.html")
-
-@app.route("/register")
-def register_page(): 
-    return render_template("register.html")
-
-@app.route("/forgot-password")
-def forgot_password_page():
-    return render_template("forgot_password.html")
-
-@app.route("/dashboard")
-def dashboard():
-    if "user_id" not in session or session.get("role") != "client":
-        return redirect("/")
-    return render_template("dashboard.html")
-
-@app.route("/admin")
-def admin_index(): 
-    return render_template("admin_login.html")
-
-@app.route("/admin/dashboard")
-def admin_dashboard():
-    if "user_id" not in session or session.get("role") != "admin":
-        return redirect("/admin")
-    return render_template("admin_dashboard.html")
-
-# ── AUTH ──────────────────────────────────────────────────────────────────────
-@app.route("/api/auth/register", methods=["POST"])
-def api_register():
-    d     = request.json or {}
-    name  = d.get("name","").strip()
-    email = d.get("email","").lower().strip()
-    phone = d.get("phone","").strip()
-    pw    = d.get("password","")
-    pin   = d.get("pin","000000")
-    ref   = d.get("ref_code","").strip().upper()
-
-    if not name or not email or len(pw) < 6:
-        return err("Name, email and password (min 6 chars) required")
-    if len(pin) != 6 or not pin.isdigit():
-        return err("PIN must be exactly 6 digits")
-
-    conn = get_db()
-    cur  = conn.cursor()
-    try:
-        referred_by = None
-        if ref:
-            cur.execute("SELECT id FROM users WHERE referral_code=%s", (ref,))
-            referrer = cur.fetchone()
-            if referrer: referred_by = referrer["id"]
-
-        uid, aid, now = _uid(), _uid(), _now()
-        cur.execute(
-            "INSERT INTO users(id,name,email,phone,password_hash,pin_hash,"
-            "role,referral_code,referred_by,created_at) "
-            "VALUES(%s,%s,%s,%s,%s,%s,'client',%s,%s,%s)",
-            (uid, name, email, phone, _hash(pw), _hash(pin),
-             secrets.token_hex(4).upper(), referred_by, now)
-        )
-        cur.execute(
-            "INSERT INTO accounts(id,user_id,balance,equity,ref_balance,"
-            "created_at) VALUES(%s,%s,0,0,0,%s)",
-            (aid, uid, now)
-        )
-        
-        # Create referral record immediately if user was referred
-        if referred_by:
-            ref_id = _uid()
-            cur.execute(
-                "INSERT INTO referrals(id, referrer_id, referred_id, commission_usd, "
-                "status, triggered_by, created_at) VALUES(%s, %s, %s, 0, 'PENDING', %s, %s)",
-                (ref_id, referred_by, uid, "REGISTRATION", now)
-            )
-            log.info(f"✓ Referral created at registration: {referred_by[:8]}... → {email}")
-        
-        conn.commit()
-        session["user_id"] = uid
-        session["role"]    = "client"
-        return ok({"redirect": "/dashboard"})
-    except psycopg2.errors.UniqueViolation:
-        conn.rollback()
-        return err("Email already registered", 409)
-    finally:
-        cur.close()
-        conn.close()
-
-@app.route("/api/auth/login", methods=["POST"])
-def api_login():
-    d     = request.json or {}
-    email = d.get("email","").lower().strip()
-    pw    = d.get("password","")
-    admin = d.get("admin", False)
-
-    conn = get_db()
-    cur  = conn.cursor()
-    cur.execute("SELECT * FROM users WHERE email=%s", (email,))
-    u = cur.fetchone()
-    cur.close()
-    conn.close()
-
-    if not u or u["password_hash"] != _hash(pw):
-        return err("Invalid credentials", 401)
-    if admin and u["role"] != "admin":
-        return err("Not an admin account", 403)
-    if not admin and u["role"] == "admin":
-        return err("Please use admin login", 403)
-
-    session["user_id"] = u["id"]
-    session["role"]    = u["role"]
-    return ok({"role": u["role"], "name": u["name"],
-               "redirect": "/admin/dashboard" if admin else "/dashboard"})
-
-@app.route("/api/auth/logout", methods=["POST"])
-def api_logout():
+@app.route('/api/auth/logout', methods=['POST'])
+def logout():
+    """Logout user"""
     session.clear()
-    return ok()
+    return jsonify({'success': True, 'message': 'Logged out'})
 
-# ── AUTH: FORGOT PASSWORD ─────────────────────────────────────────────────────
-@app.route("/api/auth/forgot-password", methods=["POST"])
-def api_forgot_password():
-    d            = request.json or {}
-    email        = d.get("email","").lower().strip()
-    phone        = d.get("phone","").strip()
-    pin          = d.get("pin","").strip()
-    new_password = d.get("new_password","")
 
-    if not email or not phone or not pin:
-        return err("Email, phone and PIN are required")
-    if len(pin) != 6 or not pin.isdigit():
-        return err("PIN must be exactly 6 digits")
-    if len(new_password) < 6:
-        return err("New password must be at least 6 characters")
+# ════════════════════════════════════════════════════════════════════════════
+# CLIENT REFERRAL ROUTES
+# ════════════════════════════════════════════════════════════════════════════
 
-    conn = get_db()
-    cur  = conn.cursor()
-    cur.execute("SELECT * FROM users WHERE email=%s AND role='client'", (email,))
-    u = cur.fetchone()
-
-    if not u:
-        cur.close(); conn.close()
-        return err("No matching account found", 404)
-
-    stored_phone = mpesa_format_phone(u["phone"] or "")
-    given_phone  = mpesa_format_phone(phone)
-
-    if not u["phone"] or stored_phone != given_phone or u["pin_hash"] != _hash(pin):
-        cur.close(); conn.close()
-        return err("Details do not match our records", 403)
-
-    cur.execute("UPDATE users SET password_hash=%s WHERE id=%s",
-                (_hash(new_password), u["id"]))
-    conn.commit()
-    cur.close(); conn.close()
-
-    log.info(f"Password reset via forgot-password flow: {u['email']}")
-    return ok({"message": "Password updated. You can now sign in with your new password."})
-
-# ── PUBLIC REFERRAL API ──────────────────────────────────────────────────────
-@app.route("/api/referral/info")
-def referral_info():
-    """Lookup referrer name by referral code (public endpoint for registration page)"""
-    code = request.args.get("code","").strip().upper()
-    if not code:
-        return err("Referral code is required")
-    
-    conn = get_db()
-    cur  = conn.cursor()
-    cur.execute("SELECT id, name FROM users WHERE referral_code=%s", (code,))
-    u = cur.fetchone()
-    cur.close(); conn.close()
-    
-    if not u:
-        return err("Referral code not found", 404)
-    
-    return ok({"referrer_name": u["name"]})
-
-# ── CLIENT API ────────────────────────────────────────────────────────────────────
-@app.route("/api/client/summary")
+@app.route('/api/client/referrals', methods=['GET'])
 @login_required
-def client_summary():
-    uid  = session["user_id"]
-    conn = get_db()
-    cur  = conn.cursor()
-
-    cur.execute("SELECT * FROM users WHERE id=%s", (uid,))
-    u = cur.fetchone()
-
-    cur.execute("SELECT * FROM accounts WHERE user_id=%s", (uid,))
-    a = cur.fetchone()
-
-    cur.execute(
-        "SELECT COALESCE(SUM(amount_usd),0) AS s FROM transactions "
-        "WHERE user_id=%s AND type='DEPOSIT' AND status='COMPLETED'", (uid,)
-    )
-    dep = cur.fetchone()
-
-    cur.execute(
-        """
-        SELECT COALESCE(SUM(amount_usd), 0) AS s
-        FROM transactions
-        WHERE user_id = %s
-          AND type IN ('WITHDRAWAL', 'REFERRAL_WITHDRAWAL')
-          AND status = 'COMPLETED'
-        """,
-        (uid,)
-    )
-    wdr = cur.fetchone()
-
-    cur.execute(
-        """
-        SELECT COALESCE(SUM(amount_usd), 0) AS s
-        FROM transactions
-        WHERE user_id = %s
-          AND type IN ('WITHDRAWAL', 'REFERRAL_WITHDRAWAL')
-          AND status = 'PENDING'
-        """,
-        (uid,)
-    )
-    wdr_pending = cur.fetchone()
-
-    cur.execute("SELECT COUNT(*) AS c FROM referrals WHERE referrer_id=%s", (uid,))
-    ref_count = cur.fetchone()
-
-    cur.execute(
-        "SELECT COALESCE(SUM(commission_usd),0) AS s FROM referrals WHERE referrer_id=%s", (uid,)
-    )
-    ref_earned = cur.fetchone()
-
-    cur.execute(
-        "SELECT COUNT(*) AS c FROM trades WHERE user_id=%s AND status='OPEN'", (uid,)
-    )
-    open_trades = cur.fetchone()
-
-    cur.execute(
-        "SELECT COALESCE(SUM(profit),0) AS s FROM daily_trade_log WHERE user_id=%s", (uid,)
-    )
-    total_profit = cur.fetchone()
-
-    cur.execute(
-        "SELECT COUNT(*) AS c FROM daily_trade_log WHERE user_id=%s", (uid,)
-    )
-    days_traded = cur.fetchone()
-
-    cur.close()
-    conn.close()
-
-    balance      = a["balance"] if a else 0
-    net_deposit  = dep["s"]
-    expected_daily = DAILY_PROFIT_USD if net_deposit >= MIN_BALANCE else 0
-
-    return ok({
-        "name":                u["name"],
-        "phone":               u["phone"] or "",
-        "balance":             balance,
-        "equity":              a["equity"]        if a else 0,
-        "total_deposits":      dep["s"],
-        "total_withdrawals":   wdr["s"],
-        "net_deposit":         net_deposit,
-        "pending_withdrawals": wdr_pending["s"],
-        "ref_balance":         a["ref_balance"]   if a else 0,
-        "ref_code":            u["referral_code"] or "",
-        "ref_count":           ref_count["c"],
-        "ref_earned":          ref_earned["s"],
-        "open_trades":         open_trades["c"],
-        "total_profit":        total_profit["s"],
-        "days_traded":         days_traded["c"],
-        "daily_profit":        expected_daily,
-        "daily_profit_rate":   f"${DAILY_PROFIT_USD} per day",
-        "deposit_packages":    DEPOSIT_PACKAGES,
+def get_referrals():
+    """Get user's referrals and earnings"""
+    user_id = session['user_id']
+    
+    referrals = Referral.query.filter_by(referrer_id=user_id).all()
+    
+    return jsonify({
+        'success': True,
+        'data': [r.to_dict() for r in referrals],
+        'count': len(referrals)
     })
 
-@app.route("/api/client/referrals")
+
+@app.route('/api/client/referral-balance', methods=['GET'])
 @login_required
-def client_referrals():
-    uid  = session["user_id"]
-    conn = get_db()
-    cur  = conn.cursor()
-    cur.execute(
-        "SELECT r.*, u.name AS referred_name, u.email AS referred_email "
-        "FROM referrals r JOIN users u ON r.referred_id=u.id "
-        "WHERE r.referrer_id=%s ORDER BY r.created_at DESC", (uid,)
-    )
-    refs = cur.fetchall()
-    cur.close(); conn.close()
-    return ok([dict(r) for r in refs])
-
-@app.route("/api/client/referral/withdraw", methods=["POST"])
-@login_required
-def client_referral_withdraw():
-    d    = request.json or {}
-    uid  = session["user_id"]
-    amt  = float(d.get("amount", 0))
-    pin  = d.get("pin","")
-    addr = d.get("address","").strip()
-    net  = d.get("network","TRC20").upper()
-
-    if not addr:            return err("Enter your USDT wallet address")
-    if net not in NETWORKS: return err("Invalid network")
-    if amt <= 0:            return err("Withdrawal amount must be greater than $0")
-
-    conn = get_db()
-    cur  = conn.cursor()
-    cur.execute("SELECT * FROM users WHERE id=%s", (uid,))
-    u = cur.fetchone()
-    cur.execute("SELECT * FROM accounts WHERE user_id=%s", (uid,))
-    a = cur.fetchone()
-
-    if u["pin_hash"] and u["pin_hash"] != _hash(pin):
-        cur.close(); conn.close()
-        return err("Invalid PIN", 403)
-
-    ref_bal = a["ref_balance"] if a else 0
-    if ref_bal < amt:
-        cur.close(); conn.close()
-        return err(f"Insufficient referral balance. Available: ${ref_bal:.2f}")
-
-    cur.execute("UPDATE accounts SET ref_balance=ref_balance-%s WHERE user_id=%s", (amt, uid))
-    ref = "REF-" + secrets.token_hex(4).upper()
-    cur.execute(
-        "INSERT INTO transactions(id,user_id,account_id,type,method,amount_usd,"
-        "reference,status,note,deposit_address,created_at) "
-        "VALUES(%s,%s,%s,'REFERRAL_WITHDRAWAL',%s,%s,%s,'PENDING',%s,%s,%s)",
-        (_uid(), uid, a["id"], net, amt, ref,
-         f"Referral bonus to {addr[:20]}...", addr, _now())
-    )
-    conn.commit()
-    cur.close(); conn.close()
-    return ok({"reference": ref,
-               "message": "Bonus withdrawal submitted. Admin will process within 24hrs."})
-
-@app.route("/api/client/transactions")
-@login_required
-def client_transactions():
-    uid  = session["user_id"]
-    conn = get_db()
-    cur  = conn.cursor()
-    cur.execute(
-        "SELECT * FROM transactions WHERE user_id=%s ORDER BY created_at DESC", (uid,)
-    )
-    txs = cur.fetchall()
-    cur.close(); conn.close()
-    return ok([dict(t) for t in txs])
-
-@app.route("/api/client/trades")
-@login_required
-def client_trades():
-    uid    = session["user_id"]
-    status = request.args.get("status","")
-    conn   = get_db()
-    cur    = conn.cursor()
-    if status:
-        cur.execute(
-            "SELECT * FROM trades WHERE user_id=%s AND status=%s "
-            "ORDER BY opened_at DESC LIMIT 50",
-            (uid, status.upper())
-        )
-    else:
-        cur.execute(
-            "SELECT * FROM trades WHERE user_id=%s ORDER BY opened_at DESC LIMIT 50",
-            (uid,)
-        )
-    rows = cur.fetchall()
-    cur.close(); conn.close()
-    return ok([dict(r) for r in rows])
-
-@app.route("/api/client/balance/history")
-@login_required
-def client_balance_history():
-    uid  = session["user_id"]
-    conn = get_db()
-    cur  = conn.cursor()
-
-    cur.execute(
-        "SELECT type, amount_usd, created_at, completed_at FROM transactions "
-        "WHERE user_id=%s AND type IN ('DEPOSIT','WITHDRAWAL','ADJUSTMENT') "
-        "AND status='COMPLETED'",
-        (uid,)
-    )
-    txs = cur.fetchall()
-
-    cur.execute(
-        "SELECT profit, created_at FROM daily_trade_log WHERE user_id=%s",
-        (uid,)
-    )
-    trades = cur.fetchall()
-
-    cur.execute("SELECT balance FROM accounts WHERE user_id=%s", (uid,))
-    acct = cur.fetchone()
-    current_balance = acct["balance"] if acct else 0
-
-    cur.close()
-    conn.close()
-
-    events = []
-    for t in txs:
-        ts = t["completed_at"] or t["created_at"]
-        if t["type"] == "DEPOSIT":
-            delta = t["amount_usd"]
-        elif t["type"] == "WITHDRAWAL":
-            delta = -t["amount_usd"]
-        else:
-            delta = t["amount_usd"]
-        events.append((ts or "", delta))
-
-    for p in trades:
-        events.append((p["created_at"] or "", p["profit"]))
-
-    events.sort(key=lambda e: e[0])
-
-    running = 0.0
-    points  = []
-    for ts, delta in events:
-        running = round(running + delta, 2)
-        points.append({"date": ts[:10] if ts else "", "timestamp": ts, "balance": running})
-
-    points.append({"date": "Now", "timestamp": _now(), "balance": current_balance})
-
-    return ok(points)
-
-@app.route("/api/client/profit/history")
-@login_required
-def client_profit_history():
-    uid  = session["user_id"]
-    conn = get_db()
-    cur  = conn.cursor()
-    cur.execute(
-        "SELECT * FROM daily_trade_log WHERE user_id=%s ORDER BY date DESC LIMIT 30", (uid,)
-    )
-    rows = cur.fetchall()
-    cur.close(); conn.close()
-    return ok([dict(r) for r in rows])
-
-# ── NOTIFICATIONS ─────────────────────────────────────────────────────────────
-@app.route("/api/client/notifications")
-@login_required
-def client_notifications():
-    uid  = session["user_id"]
-    conn = get_db()
-    cur  = conn.cursor()
-    cur.execute(
-        "SELECT * FROM notifications WHERE user_id=%s ORDER BY created_at DESC LIMIT 50",
-        (uid,)
-    )
-    rows = cur.fetchall()
-    cur.execute(
-        "SELECT COUNT(*) AS c FROM notifications WHERE user_id=%s AND read_at IS NULL",
-        (uid,)
-    )
-    unread = cur.fetchone()["c"]
-    cur.close(); conn.close()
-    return ok({"notifications": [dict(r) for r in rows], "unread_count": unread})
-
-@app.route("/api/client/notifications/<nid>/read", methods=["POST"])
-@login_required
-def client_notification_read(nid):
-    uid  = session["user_id"]
-    conn = get_db()
-    cur  = conn.cursor()
-    cur.execute(
-        "UPDATE notifications SET read_at=%s WHERE id=%s AND user_id=%s AND read_at IS NULL",
-        (_now(), nid, uid)
-    )
-    conn.commit()
-    cur.close(); conn.close()
-    return ok()
-
-@app.route("/api/client/notifications/read-all", methods=["POST"])
-@login_required
-def client_notifications_read_all():
-    uid  = session["user_id"]
-    conn = get_db()
-    cur  = conn.cursor()
-    cur.execute(
-        "UPDATE notifications SET read_at=%s WHERE user_id=%s AND read_at IS NULL",
-        (_now(), uid)
-    )
-    conn.commit()
-    cur.close(); conn.close()
-    return ok()
-
-# ── DEPOSIT ───────────────────────────────────────────────────────────────────
-@app.route("/api/client/deposit/address")
-@login_required
-def client_deposit_address():
-    net = request.args.get("network","TRC20").upper()
-    if net not in NETWORKS: return err("Invalid network")
-    if net == "MPESA":
-        return ok({"network": "MPESA", "mode": "stk_push"})
-    wallet = MANUAL_WALLETS.get(net,"")
-    if not wallet: return err("Deposit address not configured. Contact support.")
-    return ok({"address": wallet, "network": net, "mode": "manual"})
-
-@app.route("/api/client/mpesa/stk-push", methods=["POST"])
-@login_required
-def client_mpesa_stk_push():
-    d          = request.json or {}
-    uid        = session["user_id"]
-    amount_kes = float(d.get("amount", 0))
-    phone      = d.get("phone_number", "").strip()
-
-    if amount_kes < 32319.0:
-        return err("Minimum deposit is KES 32,319 (~$250)")
-    if not phone:
-        return err("Phone number is required")
-
-    phone_fmt = mpesa_format_phone(phone)
-    amount_usd = round(amount_kes / KES_PER_USD, 2)
-    if amount_usd < 1:
-        return err("Amount too low after conversion")
-
-    conn = get_db()
-    cur  = conn.cursor()
-
-    cur.execute("SELECT id FROM accounts WHERE user_id=%s", (uid,))
-    acct  = cur.fetchone()
-    tx_id = _uid()
-    ref   = "SWC-" + secrets.token_hex(4).upper()
-    note  = f"STK Push | Phone: {phone_fmt} | KES: {int(amount_kes)}"
-
-    cur.execute(
-        "INSERT INTO transactions(id,user_id,account_id,type,method,amount_usd,"
-        "reference,status,note,deposit_address,created_at) "
-        "VALUES(%s,%s,%s,'DEPOSIT','MPESA',%s,%s,'PENDING',%s,%s,%s)",
-        (tx_id, uid, acct["id"] if acct else None,
-         amount_usd, ref, note, phone_fmt, _now())
-    )
-    conn.commit()
-
-    push_ok, result = mpesa_stk_push(
-        phone       = phone,
-        amount_kes  = int(amount_kes),
-        account_ref = ref,
-        description = "Crown Deposit"
-    )
-
-    if not push_ok:
-        cur.execute(
-            "UPDATE transactions SET status='REJECTED', note=%s WHERE id=%s",
-            (f"STK Push failed: {result}", tx_id)
-        )
-        conn.commit()
-        cur.close(); conn.close()
-        return err(result)
-
-    cur.execute(
-        "UPDATE transactions SET binance_tx_id=%s WHERE id=%s",
-        (result, tx_id)
-    )
-    conn.commit()
-    cur.close(); conn.close()
-
-    log.info(f"STK Push sent: {ref} | {phone_fmt} | KES {int(amount_kes)} | CheckoutID: {result}")
-    return ok({
-        "reference":           ref,
-        "checkout_request_id": result,
-        "amount_kes":          int(amount_kes),
-        "amount_usd":          amount_usd,
-        "message":             f"M-Pesa prompt sent to {phone_fmt}. Enter your PIN to complete."
+def get_referral_balance():
+    """Get referral balance"""
+    user = User.query.get(session['user_id'])
+    
+    return jsonify({
+        'success': True,
+        'balance': float(user.ref_balance),
+        'referral_code': user.referral_code,
+        'referral_link': f"{request.host_url}register?ref={user.referral_code}"
     })
 
-@app.route("/api/client/mpesa/status")
+
+@app.route('/api/client/referral-withdraw', methods=['POST'])
 @login_required
-def client_mpesa_status():
-    checkout_id = request.args.get("checkout_request_id", "").strip()
-    if not checkout_id:
-        return err("checkout_request_id is required")
-
-    conn = get_db()
-    cur  = conn.cursor()
-    cur.execute(
-        "SELECT status, amount_usd, note, reference FROM transactions "
-        "WHERE binance_tx_id=%s AND type='DEPOSIT'",
-        (checkout_id,)
+def withdraw_referral():
+    """Withdraw referral earnings"""
+    data = request.get_json()
+    user = User.query.get(session['user_id'])
+    
+    amount = Decimal(str(data.get('amount', 0)))
+    
+    if amount < MIN_REFERRAL_WITHDRAWAL:
+        return jsonify({
+            'error': f'Minimum withdrawal is ${MIN_REFERRAL_WITHDRAWAL}'
+        }), 400
+    
+    if amount > user.ref_balance:
+        return jsonify({'error': 'Insufficient referral balance'}), 400
+    
+    # Validate PIN
+    if not user.check_pin(data.get('pin', '')):
+        return jsonify({'error': 'Invalid PIN'}), 401
+    
+    # Create withdrawal transaction
+    user.ref_balance -= amount
+    
+    withdrawal = Transaction(
+        user_id=user.id,
+        type='REFERRAL_WITHDRAWAL',
+        amount=amount,
+        balance_before=user.ref_balance + amount,
+        balance_after=user.ref_balance,
+        description=f'Referral withdrawal to {data.get("network")}: {data.get("wallet_address")}',
+        reference=str(uuid.uuid4())
     )
-    tx = cur.fetchone()
-    cur.close(); conn.close()
-
-    if not tx:
-        return ok({"status": "PENDING"})
-
-    mpesa_code = ""
-    if tx["status"] == "COMPLETED" and tx["note"] and "MpesaRef:" in tx["note"]:
-        try:
-            mpesa_code = tx["note"].split("MpesaRef:")[-1].strip().split(" ")[0]
-        except Exception:
-            pass
-
-    return ok({
-        "status":     tx["status"],
-        "amount":     tx["amount_usd"],
-        "mpesa_code": mpesa_code,
-        "reference":  tx["reference"],
-        "message":    tx["note"] or ""
+    
+    db.session.add(withdrawal)
+    db.session.commit()
+    
+    return jsonify({
+        'success': True,
+        'message': 'Withdrawal initiated',
+        'transaction': withdrawal.to_dict()
     })
 
-@app.route("/mpesa/callback", methods=["POST"])
-def mpesa_callback():
-    try:
-        data = request.json or {}
-        log.info(f"M-Pesa callback received: {data}")
 
-        body        = data.get("Body", {})
-        stk         = body.get("stkCallback", {})
-        result_code = stk.get("ResultCode")
-        checkout_id = stk.get("CheckoutRequestID", "")
+# ════════════════════════════════════════════════════════════════════════════
+# ADMIN ROUTES
+# ════════════════════════════════════════════════════════════════════════════
 
-        conn = get_db()
-        cur  = conn.cursor()
-        cur.execute(
-            "SELECT * FROM transactions "
-            "WHERE binance_tx_id=%s AND type='DEPOSIT' AND status='PENDING'",
-            (checkout_id,)
-        )
-        tx = cur.fetchone()
-
-        if not tx:
-            log.warning(f"M-Pesa callback: no pending tx for CheckoutRequestID={checkout_id}")
-            cur.close(); conn.close()
-            return jsonify({"ResultCode": 0, "ResultDesc": "Accepted"})
-
-        if result_code == 0:
-            meta       = stk.get("CallbackMetadata", {}).get("Item", [])
-            mpesa_ref  = next((i["Value"] for i in meta if i.get("Name") == "MpesaReceiptNumber"), "")
-            amount_kes = next((i["Value"] for i in meta if i.get("Name") == "Amount"), "")
-
-            cur.execute(
-                "UPDATE transactions SET status='COMPLETED', completed_at=%s, "
-                "note=note||%s WHERE id=%s",
-                (_now(), f" | MpesaRef: {mpesa_ref} | KES: {amount_kes}", tx["id"])
-            )
-            cur.execute(
-                "UPDATE accounts SET balance=balance+%s, equity=equity+%s "
-                "WHERE user_id=%s",
-                (tx["amount_usd"], tx["amount_usd"], tx["user_id"])
-            )
-            conn.commit()
-            log.info(
-                f"M-Pesa payment confirmed: {tx['reference']} "
-                f"+${tx['amount_usd']} | MpesaRef: {mpesa_ref}"
-            )
-
-            # Process referral synchronously
-            try:
-                process_referral_commission(tx["id"], tx["user_id"], tx["amount_usd"])
-                log.info(f"✓ Referral processed immediately for M-Pesa deposit {tx['id']}")
-            except Exception as e:
-                log.error(f"✗ Referral processing error during M-Pesa callback: {e}")
-
-        else:
-            result_desc = stk.get("ResultDesc", "Cancelled or failed")
-            cur.execute(
-                "UPDATE transactions SET status='REJECTED', "
-                "note=note||%s, completed_at=%s WHERE id=%s",
-                (f" | Failed: {result_desc}", _now(), tx["id"])
-            )
-            conn.commit()
-            log.info(f"M-Pesa payment failed: {tx['reference']} | {result_desc}")
-
-        cur.close(); conn.close()
-
-    except Exception as e:
-        log.error(f"M-Pesa callback error: {e}")
-
-    return jsonify({"ResultCode": 0, "ResultDesc": "Accepted"})
-
-@app.route("/api/client/deposit/pending", methods=["POST"])
-@login_required
-def client_deposit_pending():
-    d    = request.json or {}
-    uid  = session["user_id"]
-    amt  = float(d.get("amount", 0))
-    net  = d.get("network","TRC20").upper()
-    addr = d.get("address","").strip()
-
-    if net == "MPESA":
-        return err("Use the M-Pesa deposit flow")
-    if amt < 250:  return err("Minimum deposit is $250")
-    if not addr:   return err("Deposit address is required")
-    
-    # Validate amount is in approved packages or within reasonable custom range
-    if amt not in DEPOSIT_PACKAGES and amt < 250:
-        return err(f"Minimum deposit is $250")
-
-    conn = get_db()
-    cur  = conn.cursor()
-    cur.execute("SELECT id FROM accounts WHERE user_id=%s", (uid,))
-    acct = cur.fetchone()
-    ref  = "DEP-" + secrets.token_hex(4).upper()
-    cur.execute(
-        "INSERT INTO transactions(id,user_id,account_id,type,method,amount_usd,"
-        "reference,status,deposit_address,created_at) "
-        "VALUES(%s,%s,%s,'DEPOSIT',%s,%s,%s,'PENDING',%s,%s)",
-        (_uid(), uid, acct["id"] if acct else None, net, amt, ref, addr, _now())
-    )
-    conn.commit()
-    cur.close(); conn.close()
-    return ok({"reference": ref,
-               "message": "Deposit submitted. Awaiting admin confirmation."})
-
-# ── WITHDRAWAL ────────────────────────────────────────────────────────────────
-@app.route("/api/client/withdraw", methods=["POST"])
-@login_required
-def client_withdraw():
-    d    = request.json or {}
-    uid  = session["user_id"]
-    amt  = float(d.get("amount", 0))
-    net  = d.get("network","TRC20").upper()
-    addr = d.get("address","").strip()
-    pin  = d.get("pin","")
-
-    if amt < MIN_WITHDRAWAL:    return err(f"Minimum withdrawal is ${MIN_WITHDRAWAL}")
-    if amt <= 0:                return err("Withdrawal amount must be greater than $0")
-    if not addr:                return err("Enter withdrawal address")
-    if net not in NETWORKS:     return err("Invalid network")
-
-    conn = get_db()
-    cur  = conn.cursor()
-    cur.execute("SELECT pin_hash FROM users WHERE id=%s", (uid,))
-    u = cur.fetchone()
-    cur.execute("SELECT * FROM accounts WHERE user_id=%s", (uid,))
-    a = cur.fetchone()
-
-    if not a or a["balance"] < amt:
-        cur.close(); conn.close()
-        return err("Insufficient balance")
-    if u["pin_hash"] and u["pin_hash"] != _hash(pin):
-        cur.close(); conn.close()
-        return err("Invalid PIN", 403)
-
-    ref = "WD-" + secrets.token_hex(4).upper()
-    cur.execute(
-        "INSERT INTO transactions(id,user_id,account_id,type,method,amount_usd,"
-        "reference,status,deposit_address,created_at) "
-        "VALUES(%s,%s,%s,'WITHDRAWAL',%s,%s,%s,'PENDING',%s,%s)",
-        (_uid(), uid, a["id"], net, amt, ref, addr, _now())
-    )
-    conn.commit()
-    cur.close(); conn.close()
-    return ok({"reference": ref,
-               "message": "Withdrawal submitted. Admin will process within 24hrs."})
-
-# ── ADMIN API ─────────────────────────────────────────────────────────────────
-@app.route("/api/admin/stats")
+@app.route('/api/admin/referrals', methods=['GET'])
 @admin_required
-def admin_stats():
-    conn = get_db()
-    cur  = conn.cursor()
-    cur.execute("SELECT COUNT(*) AS c FROM users WHERE role='client'")
-    clients = cur.fetchone()["c"]
-    cur.execute("SELECT COUNT(*) AS c FROM accounts WHERE balance >= %s", (MIN_BALANCE,))
-    active = cur.fetchone()["c"]
-    cur.execute("SELECT COALESCE(SUM(amount_usd),0) AS s FROM transactions WHERE type='DEPOSIT' AND status='COMPLETED'")
-    deposits = cur.fetchone()["s"]
-    cur.execute("SELECT COALESCE(SUM(amount_usd),0) AS s FROM transactions WHERE type IN ('WITHDRAWAL','REFERRAL_WITHDRAWAL') AND status='COMPLETED'")
-    withdrawals = cur.fetchone()["s"]
-    cur.execute("SELECT COUNT(*) AS c FROM transactions WHERE type='DEPOSIT' AND status='PENDING'")
-    pending_dep = cur.fetchone()["c"]
-    cur.execute("SELECT COUNT(*) AS c FROM transactions WHERE type IN ('WITHDRAWAL','REFERRAL_WITHDRAWAL') AND status='PENDING'")
-    pending_wdr = cur.fetchone()["c"]
-    cur.execute("SELECT COUNT(*) AS c FROM referrals")
-    total_refs = cur.fetchone()["c"]
-    cur.execute("SELECT COALESCE(SUM(commission_usd),0) AS s FROM referrals")
-    ref_paid = cur.fetchone()["s"]
-    cur.execute("SELECT COALESCE(SUM(profit),0) AS s FROM daily_trade_log")
-    profit_paid = cur.fetchone()["s"]
-    cur.execute("SELECT COUNT(*) AS c FROM daily_trade_log WHERE date=%s", (_today(),))
-    trades_today = cur.fetchone()["c"]
-    cur.close(); conn.close()
-
-    return ok({
-        "clients":             clients,
-        "active_clients":      active,
-        "deposits":            deposits,
-        "withdrawals":         withdrawals,
-        "pending_deposits":    pending_dep,
-        "pending_withdrawals": pending_wdr,
-        "total_referrals":     total_refs,
-        "ref_commissions":     ref_paid,
-        "total_profit_paid":   profit_paid,
-        "trades_today":        trades_today,
-        "daily_profit_rate":   f"${DAILY_PROFIT_USD}",
-        "trade_symbol":        TRADE_SYMBOL,
-        "scheduler_running":   _scheduler_started,
-        "min_withdrawal":      MIN_WITHDRAWAL,
-        "deposit_packages":    DEPOSIT_PACKAGES,
+def admin_get_referrals():
+    """Get all referrals"""
+    referrals = Referral.query.all()
+    
+    return jsonify({
+        'success': True,
+        'data': [r.to_dict() for r in referrals],
+        'count': len(referrals)
     })
 
-@app.route("/api/admin/transactions")
-@admin_required
-def admin_transactions():
-    conn = get_db()
-    cur  = conn.cursor()
-    cur.execute(
-        "SELECT t.*, u.name AS user_name, u.email AS user_email "
-        "FROM transactions t JOIN users u ON t.user_id=u.id "
-        "ORDER BY t.created_at DESC"
-    )
-    txs = cur.fetchall()
-    cur.close(); conn.close()
-    return ok([dict(t) for t in txs])
 
-@app.route("/api/admin/deposit/approve", methods=["POST"])
-@admin_required
-def admin_approve_deposit():
-    d    = request.json or {}
-    txid = d.get("tx_id","").strip()
-    if not txid: return err("tx_id required")
-
-    conn = get_db()
-    cur  = conn.cursor()
-    cur.execute("SELECT * FROM transactions WHERE id=%s", (txid,))
-    tx = cur.fetchone()
-    if not tx:                    cur.close(); conn.close(); return err("Transaction not found")
-    if tx["type"] != "DEPOSIT":   cur.close(); conn.close(); return err("Not a deposit")
-    if tx["status"] != "PENDING": cur.close(); conn.close(); return err(f"Already {tx['status']}")
-
-    cur.execute(
-        "UPDATE transactions SET status='COMPLETED',completed_at=%s WHERE id=%s",
-        (_now(), txid)
-    )
-    cur.execute(
-        "UPDATE accounts SET balance=balance+%s,equity=equity+%s WHERE user_id=%s",
-        (tx["amount_usd"], tx["amount_usd"], tx["user_id"])
-    )
-    conn.commit()
-    cur.close(); conn.close()
-
-    # ✅ FIX: Process referral synchronously (immediately)
-    try:
-        process_referral_commission(txid, tx["user_id"], tx["amount_usd"])
-        log.info(f"✓ Referral processed immediately for deposit {txid}")
-    except Exception as e:
-        log.error(f"✗ Referral processing error: {e}")
-    
-    return ok({"message": f"Deposit of ${tx['amount_usd']:,.2f} approved"})
-
-@app.route("/api/admin/deposit/reject", methods=["POST"])
-@admin_required
-def admin_reject_deposit():
-    d      = request.json or {}
-    txid   = d.get("tx_id","").strip()
-    reason = d.get("reason","Rejected by admin")
-    conn   = get_db()
-    cur    = conn.cursor()
-    cur.execute("SELECT * FROM transactions WHERE id=%s", (txid,))
-    tx = cur.fetchone()
-    if not tx or tx["status"] != "PENDING":
-        cur.close(); conn.close()
-        return err("Pending transaction not found")
-    cur.execute(
-        "UPDATE transactions SET status='REJECTED',note=%s,completed_at=%s WHERE id=%s",
-        (reason, _now(), txid)
-    )
-    conn.commit()
-    cur.close(); conn.close()
-    return ok({"message": "Deposit rejected"})
-
-@app.route("/api/admin/withdrawal/approve", methods=["POST"])
-@admin_required
-def admin_approve_withdrawal():
-    d    = request.json or {}
-    txid = d.get("tx_id","").strip()
-    conn = get_db()
-    cur  = conn.cursor()
-    cur.execute("SELECT * FROM transactions WHERE id=%s", (txid,))
-    tx = cur.fetchone()
-    if (not tx
-            or tx["type"] not in ("WITHDRAWAL","REFERRAL_WITHDRAWAL")
-            or tx["status"] != "PENDING"):
-        cur.close(); conn.close()
-        return err("Pending withdrawal not found")
-
-    if tx["type"] == "WITHDRAWAL":
-        cur.execute(
-            "UPDATE accounts SET balance=balance-%s, equity=equity-%s WHERE user_id=%s",
-            (tx["amount_usd"], tx["amount_usd"], tx["user_id"])
-        )
-
-    cur.execute(
-        "UPDATE transactions SET status='COMPLETED',completed_at=%s WHERE id=%s",
-        (_now(), txid)
-    )
-    conn.commit()
-    cur.close(); conn.close()
-    return ok({"message": "Withdrawal marked complete"})
-
-@app.route("/api/admin/withdrawal/reject", methods=["POST"])
-@admin_required
-def admin_reject_withdrawal():
-    d      = request.json or {}
-    txid   = d.get("tx_id","").strip()
-    reason = d.get("reason","Rejected by admin")
-    conn   = get_db()
-    cur    = conn.cursor()
-    cur.execute("SELECT * FROM transactions WHERE id=%s", (txid,))
-    tx = cur.fetchone()
-    if (not tx
-            or tx["type"] not in ("WITHDRAWAL","REFERRAL_WITHDRAWAL")
-            or tx["status"] != "PENDING"):
-        cur.close(); conn.close()
-        return err("Pending withdrawal not found")
-
-    if tx["type"] == "REFERRAL_WITHDRAWAL":
-        cur.execute(
-            "UPDATE accounts SET ref_balance=ref_balance+%s WHERE user_id=%s",
-            (tx["amount_usd"], tx["user_id"])
-        )
-
-    cur.execute(
-        "UPDATE transactions SET status='REJECTED',note=%s,completed_at=%s WHERE id=%s",
-        (reason, _now(), txid)
-    )
-    conn.commit()
-    cur.close(); conn.close()
-    return ok({"message": "Withdrawal rejected — bonus balance restored if applicable"})
-
-@app.route("/api/admin/clients")
-@admin_required
-def admin_clients():
-    conn = get_db()
-    cur  = conn.cursor()
-    cur.execute(
-        "SELECT u.id, u.name, u.email, u.phone, u.referral_code, u.created_at, "
-        "a.balance, a.equity, a.ref_balance, "
-        "(SELECT COUNT(*) FROM referrals WHERE referrer_id=u.id) AS ref_count, "
-        "(SELECT COALESCE(SUM(profit),0) FROM daily_trade_log WHERE user_id=u.id) AS total_profit, "
-        "(SELECT COUNT(*) FROM daily_trade_log WHERE user_id=u.id) AS days_active, "
-        "(SELECT COALESCE(SUM(amount_usd),0) FROM transactions "
-        " WHERE user_id=u.id AND type='DEPOSIT' AND status='COMPLETED') AS total_deposits, "
-        "(SELECT COALESCE(SUM(amount_usd),0) FROM transactions "
-        " WHERE user_id=u.id AND type IN ('WITHDRAWAL','REFERRAL_WITHDRAWAL') "
-        " AND status='COMPLETED') AS total_withdrawals, "
-        "(SELECT COALESCE(SUM(amount_usd),0) FROM transactions "
-        " WHERE user_id=u.id AND type='WITHDRAWAL' AND status='COMPLETED') AS total_principal_withdrawals, "
-        "(SELECT COALESCE(SUM(amount_usd),0) FROM transactions "
-        " WHERE user_id=u.id AND type='DEPOSIT' AND status='COMPLETED') AS trading_basis, "
-        "(SELECT COALESCE(SUM(commission_usd),0) FROM referrals "
-        " WHERE referrer_id=u.id) AS total_ref_earned "
-        "FROM users u LEFT JOIN accounts a ON u.id=a.user_id "
-        "WHERE u.role='client' ORDER BY u.created_at DESC"
-    )
-    clients = cur.fetchall()
-    cur.close(); conn.close()
-    return ok([dict(c) for c in clients])
-
-@app.route("/api/admin/client/<uid>/adjust", methods=["POST"])
-@admin_required
-def admin_adjust_balance(uid):
-    d      = request.json or {}
-    amount = float(d.get("amount", 0))
-    note   = d.get("note","Admin adjustment")
-    if amount == 0: return err("Amount cannot be zero")
-
-    conn = get_db()
-    cur  = conn.cursor()
-    cur.execute("SELECT * FROM accounts WHERE user_id=%s", (uid,))
-    a = cur.fetchone()
-    if not a:
-        cur.close(); conn.close()
-        return err("Account not found")
-
-    cur.execute(
-        "UPDATE accounts SET balance=balance+%s,equity=equity+%s WHERE user_id=%s",
-        (amount, amount, uid)
-    )
-    cur.execute(
-        "INSERT INTO transactions(id,user_id,account_id,type,method,amount_usd,"
-        "reference,status,note,created_at,completed_at) "
-        "VALUES(%s,%s,%s,'ADJUSTMENT','MANUAL',%s,%s,'COMPLETED',%s,%s,%s)",
-        (_uid(), uid, a["id"], amount,
-         "ADJ-"+secrets.token_hex(4).upper(), note, _now(), _now())
-    )
-    conn.commit()
-    cur.close(); conn.close()
-    return ok({"message": f"Balance adjusted by {amount:+.2f}"})
-
-@app.route("/api/admin/client/<uid>/create-deposit-tx", methods=["POST"])
-@admin_required
-def admin_create_deposit_transaction(uid):
-    d      = request.json or {}
-    amount = float(d.get("amount", 0))
-    method = d.get("method", "MANUAL").upper()
-    note   = d.get("note", "Manual deposit")
-    
-    if amount <= 0: return err("Amount must be greater than 0")
-    if not method: return err("Method is required")
-    
-    conn = get_db()
-    cur  = conn.cursor()
-    
-    cur.execute("SELECT id FROM users WHERE id=%s AND role='client'", (uid,))
-    if not cur.fetchone():
-        cur.close(); conn.close()
-        return err("Client not found", 404)
-    
-    cur.execute("SELECT * FROM accounts WHERE user_id=%s", (uid,))
-    a = cur.fetchone()
-    if not a:
-        cur.close(); conn.close()
-        return err("Account not found")
-    
-    ref = "DEP-" + secrets.token_hex(4).upper()
-    now = _now()
-    
-    cur.execute(
-        "INSERT INTO transactions(id,user_id,account_id,type,method,amount_usd,"
-        "reference,status,note,created_at,completed_at) "
-        "VALUES(%s,%s,%s,'DEPOSIT',%s,%s,%s,'COMPLETED',%s,%s,%s)",
-        (_uid(), uid, a["id"], method, amount, ref, note, now, now)
-    )
-    
-    cur.execute(
-        "UPDATE accounts SET balance=balance+%s, equity=equity+%s WHERE user_id=%s",
-        (amount, amount, uid)
-    )
-    
-    conn.commit()
-    cur.close(); conn.close()
-    
-    log.info(f"Manual deposit created: {ref} | Client: {uid} | ${amount}")
-    return ok({"reference": ref, "message": f"Deposit of ${amount:.2f} created and completed"})
-
-@app.route("/api/admin/client/<uid>/create-withdrawal-tx", methods=["POST"])
-@admin_required
-def admin_create_withdrawal_transaction(uid):
-    d      = request.json or {}
-    amount = float(d.get("amount", 0))
-    method = d.get("method", "MANUAL").upper()
-    note   = d.get("note", "Manual withdrawal")
-    
-    if amount <= 0: return err("Amount must be greater than 0")
-    if not method: return err("Method is required")
-    
-    conn = get_db()
-    cur  = conn.cursor()
-    
-    cur.execute("SELECT id FROM users WHERE id=%s AND role='client'", (uid,))
-    if not cur.fetchone():
-        cur.close(); conn.close()
-        return err("Client not found", 404)
-    
-    cur.execute("SELECT * FROM accounts WHERE user_id=%s", (uid,))
-    a = cur.fetchone()
-    if not a:
-        cur.close(); conn.close()
-        return err("Account not found")
-    
-    if a["balance"] < amount:
-        cur.close(); conn.close()
-        return err(f"Insufficient balance (${a['balance']:.2f}). Cannot withdraw ${amount:.2f}")
-    
-    ref = "WD-" + secrets.token_hex(4).upper()
-    now = _now()
-    
-    cur.execute(
-        "INSERT INTO transactions(id,user_id,account_id,type,method,amount_usd,"
-        "reference,status,note,created_at,completed_at) "
-        "VALUES(%s,%s,%s,'WITHDRAWAL',%s,%s,%s,'COMPLETED',%s,%s,%s)",
-        (_uid(), uid, a["id"], method, amount, ref, note, now, now)
-    )
-    
-    cur.execute(
-        "UPDATE accounts SET balance=balance-%s, equity=equity-%s WHERE user_id=%s",
-        (amount, amount, uid)
-    )
-    
-    conn.commit()
-    cur.close(); conn.close()
-    
-    log.info(f"Manual withdrawal created: {ref} | Client: {uid} | ${amount}")
-    return ok({"reference": ref, "message": f"Withdrawal of ${amount:.2f} created and completed"})
-
-@app.route("/api/admin/client/<uid>/edit", methods=["POST"])
-@admin_required
-def admin_edit_client(uid):
-    d     = request.json or {}
-    name  = d.get("name","").strip()
-    email = d.get("email","").lower().strip()
-    phone = d.get("phone","").strip()
-    if not name:  return err("Name is required")
-    if not email: return err("Email is required")
-    conn = get_db()
-    cur  = conn.cursor()
-    try:
-        cur.execute("SELECT id FROM users WHERE id=%s", (uid,))
-        if not cur.fetchone():
-            cur.close(); conn.close()
-            return err("Client not found", 404)
-        cur.execute(
-            "UPDATE users SET name=%s, email=%s, phone=%s WHERE id=%s",
-            (name, email, phone, uid)
-        )
-        conn.commit()
-        cur.close(); conn.close()
-        return ok({"message": "Client updated successfully"})
-    except psycopg2.errors.UniqueViolation:
-        conn.rollback()
-        cur.close(); conn.close()
-        return err("That email is already used by another account", 409)
-
-@app.route("/api/admin/client/<uid>/delete", methods=["POST"])
-@admin_required
-def admin_delete_client(uid):
-    d = request.json or {}
-    confirm = d.get("confirm", False)
-    
-    if not confirm:
-        return err("Pass confirm=true to confirm deletion", 400)
-    
-    conn = get_db()
-    cur = conn.cursor()
-    
-    cur.execute("SELECT id, name, email FROM users WHERE id=%s AND role='client'", (uid,))
-    u = cur.fetchone()
-    if not u:
-        cur.close(); conn.close()
-        return err("Client not found", 404)
-    
-    try:
-        cur.execute("DELETE FROM notifications WHERE user_id=%s", (uid,))
-        cur.execute("DELETE FROM daily_trade_log WHERE user_id=%s", (uid,))
-        cur.execute("DELETE FROM trades WHERE user_id=%s", (uid,))
-        cur.execute("DELETE FROM transactions WHERE user_id=%s", (uid,))
-        cur.execute("DELETE FROM referrals WHERE referrer_id=%s OR referred_id=%s", (uid, uid))
-        cur.execute("DELETE FROM accounts WHERE user_id=%s", (uid,))
-        cur.execute("DELETE FROM users WHERE id=%s", (uid,))
-        
-        conn.commit()
-        log.info(f"Client deleted: {u['email']} (ID: {uid})")
-        return ok({"message": f"Client {u['name']} ({u['email']}) permanently deleted"})
-        
-    except Exception as e:
-        conn.rollback()
-        log.error(f"Delete client failed: {e}")
-        return err(f"Delete failed: {str(e)}", 500)
-    finally:
-        cur.close()
-        conn.close()
-
-@app.route("/api/admin/client/<uid>/reset-password", methods=["POST"])
-@admin_required
-def admin_reset_client_password(uid):
-    d            = request.json or {}
-    new_password = d.get("new_password","")
-    notify       = bool(d.get("notify", True))
-
-    if len(new_password) < 6:
-        return err("New password must be at least 6 characters")
-
-    conn = get_db()
-    cur  = conn.cursor()
-    cur.execute("SELECT id, name, email FROM users WHERE id=%s AND role='client'", (uid,))
-    u = cur.fetchone()
-    if not u:
-        cur.close(); conn.close()
-        return err("Client not found", 404)
-
-    cur.execute("UPDATE users SET password_hash=%s WHERE id=%s",
-                (_hash(new_password), u["id"]))
-
-    if notify:
-        create_notification(
-            cur, uid,
-            "Your password was reset",
-            "An administrator has reset your account password. If you did not "
-            "request this, please contact support immediately.",
-            "ALERT"
-        )
-
-    conn.commit()
-    cur.close(); conn.close()
-
-    log.info(f"Admin reset password for client {u['email']}")
-    return ok({"message": f"Password reset for {u['name']}"})
-
-@app.route("/api/admin/create-referral", methods=["POST"])
+@app.route('/api/admin/referral/create', methods=['POST'])
 @admin_required
 def admin_create_referral():
-    """Create a manual referral relationship between two users."""
-    d = request.json or {}
-    referrer_id = d.get("referrer_id", "").strip()
-    referred_id = d.get("referred_id", "").strip()
-    note = d.get("note", "Manual referral creation").strip()
-    create_deposit = bool(d.get("create_deposit", False))
-    deposit_amount = float(d.get("deposit_amount", 0))
-    deposit_method = d.get("deposit_method", "MANUAL").upper()
-
-    if not referrer_id or not referred_id:
-        return err("referrer_id and referred_id are required")
+    """Admin: Create referral between two users"""
+    data = request.get_json()
     
-    if referrer_id == referred_id:
-        return err("Referrer and referred user must be different")
-
-    conn = get_db()
-    cur = conn.cursor()
-
-    cur.execute("SELECT id, name FROM users WHERE id=%s AND role='client'", (referrer_id,))
-    referrer = cur.fetchone()
-    if not referrer:
-        cur.close(); conn.close()
-        return err("Referrer not found or not a client", 404)
-
-    cur.execute("SELECT id, name FROM users WHERE id=%s AND role='client'", (referred_id,))
-    referred = cur.fetchone()
-    if not referred:
-        cur.close(); conn.close()
-        return err("Referred user not found or not a client", 404)
-
-    cur.execute(
-        "SELECT id FROM referrals WHERE referrer_id=%s AND referred_id=%s",
-        (referrer_id, referred_id)
-    )
-    if cur.fetchone():
-        cur.close(); conn.close()
-        return err("Referral already exists between these users", 400)
-
-    try:
-        ref_id = _uid()
-        cur.execute(
-            "INSERT INTO referrals(id, referrer_id, referred_id, commission_usd, "
-            "status, triggered_by, created_at) VALUES(%s, %s, %s, 0, 'CREDITED', %s, %s)",
-            (ref_id, referrer_id, referred_id, "MANUAL-" + ref_id[:8], _now())
-        )
-
-        if create_deposit and deposit_amount > 0:
-            cur.execute("SELECT id FROM accounts WHERE user_id=%s", (referred_id,))
-            acct = cur.fetchone()
-            if not acct:
-                cur.close(); conn.close()
-                return err("Referred user has no account", 400)
-
-            tx_ref = "DEP-" + secrets.token_hex(4).upper()
-            tx_id = _uid()
-            dep_note = f"Manual deposit — {note}"
-
-            cur.execute(
-                "INSERT INTO transactions(id, user_id, account_id, type, method, "
-                "amount_usd, reference, status, note, created_at, completed_at) "
-                "VALUES(%s, %s, %s, 'DEPOSIT', %s, %s, %s, 'COMPLETED', %s, %s, %s)",
-                (tx_id, referred_id, acct["id"], deposit_method, deposit_amount, 
-                 tx_ref, dep_note, _now(), _now())
-            )
-
-            cur.execute(
-                "UPDATE accounts SET balance=balance+%s, equity=equity+%s WHERE user_id=%s",
-                (deposit_amount, deposit_amount, referred_id)
-            )
-
-            conn.commit()
-            log.info(f"✓ Admin created referral: {referrer['name']} → {referred['name']} + ${deposit_amount} deposit")
-            return ok({
-                "message": f"Referral created: {referrer['name']} → {referred['name']} with ${deposit_amount} deposit"
-            })
-        else:
-            conn.commit()
-            log.info(f"✓ Admin created referral: {referrer['name']} → {referred['name']}")
-            return ok({
-                "message": f"Referral created: {referrer['name']} → {referred['name']}"
-            })
-
-    except Exception as e:
-        conn.rollback()
-        log.error(f"Create referral failed: {e}")
-        return err(f"Failed to create referral: {str(e)}", 500)
-    finally:
-        cur.close()
-        conn.close()
-
-@app.route("/api/admin/create-referral-member", methods=["POST"])
-@admin_required
-def admin_create_referral_member():
-    """Create a new client account linked directly to a referrer."""
-    d = request.json or {}
-    referrer_id = d.get("referrer_id", "").strip()
-    name = d.get("name", "").strip()
-    email = d.get("email", "").lower().strip()
-    phone = d.get("phone", "").strip()
-    password = d.get("password", "")
-    create_deposit = bool(d.get("create_deposit", False))
-    deposit_amount = float(d.get("deposit_amount", 0))
-    deposit_method = d.get("deposit_method", "MANUAL").upper()
-    note = d.get("note", "Admin-created referral member").strip()
-
-    if not referrer_id or not name or not email or not password:
-        return err("referrer_id, name, email, and password are required")
+    referrer = User.query.get(data.get('referrer_id'))
+    referred = User.query.get(data.get('referred_id'))
     
-    if len(password) < 6:
-        return err("Password must be at least 6 characters")
-
-    conn = get_db()
-    cur = conn.cursor()
-
-    cur.execute("SELECT id, name FROM users WHERE id=%s AND role='client'", (referrer_id,))
-    referrer = cur.fetchone()
-    if not referrer:
-        cur.close(); conn.close()
-        return err("Referrer not found or not a client", 404)
-
-    cur.execute("SELECT id FROM users WHERE email=%s", (email,))
-    if cur.fetchone():
-        cur.close(); conn.close()
-        return err("Email already registered", 409)
-
-    try:
-        user_id = _uid()
-        account_id = _uid()
-        now = _now()
-        referral_code = secrets.token_hex(4).upper()
-
-        cur.execute(
-            "INSERT INTO users(id, name, email, phone, password_hash, pin_hash, "
-            "role, referral_code, referred_by, created_at) "
-            "VALUES(%s, %s, %s, %s, %s, %s, 'client', %s, %s, %s)",
-            (user_id, name, email, phone, _hash(password), _hash("000000"), 
-             referral_code, referrer_id, now)
-        )
-
-        cur.execute(
-            "INSERT INTO accounts(id, user_id, balance, equity, ref_balance, created_at) "
-            "VALUES(%s, %s, 0, 0, 0, %s)",
-            (account_id, user_id, now)
-        )
-
-        ref_id = _uid()
-        cur.execute(
-            "INSERT INTO referrals(id, referrer_id, referred_id, commission_usd, "
-            "status, triggered_by, created_at) VALUES(%s, %s, %s, 0, 'CREDITED', %s, %s)",
-            (ref_id, referrer_id, user_id, "ADMIN-" + ref_id[:8], now)
-        )
-
-        if create_deposit and deposit_amount > 0:
-            tx_ref = "DEP-" + secrets.token_hex(4).upper()
-            tx_id = _uid()
-            dep_note = f"Initial deposit — {note}"
-
-            cur.execute(
-                "INSERT INTO transactions(id, user_id, account_id, type, method, "
-                "amount_usd, reference, status, note, created_at, completed_at) "
-                "VALUES(%s, %s, %s, 'DEPOSIT', %s, %s, %s, 'COMPLETED', %s, %s, %s)",
-                (tx_id, user_id, account_id, deposit_method, deposit_amount, 
-                 tx_ref, dep_note, now, now)
-            )
-
-            cur.execute(
-                "UPDATE accounts SET balance=balance+%s, equity=equity+%s WHERE user_id=%s",
-                (deposit_amount, deposit_amount, user_id)
-            )
-
-            conn.commit()
-            log.info(f"✓ Admin created referral member: {name} ({email}) → {referrer['name']} + ${deposit_amount} deposit")
-            return ok({
-                "message": f"Member {name} created and linked to {referrer['name']} with ${deposit_amount} deposit",
-                "data": {
-                    "user_id": user_id,
-                    "email": email,
-                    "referral_code": referral_code,
-                    "balance": deposit_amount
-                }
-            })
-        else:
-            conn.commit()
-            log.info(f"✓ Admin created referral member: {name} ({email}) → {referrer['name']}")
-            return ok({
-                "message": f"Member {name} created and linked to {referrer['name']}",
-                "data": {
-                    "user_id": user_id,
-                    "email": email,
-                    "referral_code": referral_code,
-                    "balance": 0
-                }
-            })
-
-    except psycopg2.errors.UniqueViolation:
-        conn.rollback()
-        cur.close(); conn.close()
-        return err("Email already registered", 409)
-    except Exception as e:
-        conn.rollback()
-        log.error(f"Create referral member failed: {e}")
-        return err(f"Failed to create member: {str(e)}", 500)
-    finally:
-        cur.close()
-        conn.close()
-
-@app.route("/api/admin/trade/run", methods=["POST"])
-@admin_required
-def admin_run_trades():
-    try:
-        run_daily_trades()
-        return ok({"message": f"Daily trades completed — ${DAILY_PROFIT_USD} per eligible client"})
-    except Exception as e:
-        log.error(f"Trade run failed: {e}")
-        return err(f"Trade execution error: {str(e)}")
-
-@app.route("/api/admin/trade/run-single", methods=["POST"])
-@admin_required
-def admin_run_single_client_trade():
-    d   = request.json or {}
-    uid = d.get("user_id", "").strip()
-    if not uid:
-        return err("user_id required")
-
-    conn = get_db()
-    cur  = conn.cursor()
-
-    cur.execute(
-        "SELECT u.id, u.name, a.id AS account_id, a.balance, "
-        "  COALESCE((SELECT SUM(amount_usd) FROM transactions "
-        "            WHERE user_id=u.id AND type='DEPOSIT' AND status='COMPLETED'), 0) "
-        "  AS total_deposit "
-        "FROM users u JOIN accounts a ON u.id=a.user_id "
-        "WHERE u.id=%s AND u.role='client'", (uid,)
+    if not referrer or not referred:
+        return jsonify({'error': 'User not found'}), 404
+    
+    existing = Referral.query.filter_by(
+        referrer_id=referrer.id,
+        referred_id=referred.id
+    ).first()
+    
+    if existing:
+        return jsonify({'error': 'Referral already exists'}), 400
+    
+    referral = Referral(
+        referrer_id=referrer.id,
+        referred_id=referred.id,
+        status='PENDING'
     )
-    c = cur.fetchone()
-    if not c:
-        cur.close(); conn.close()
-        return err("Client not found", 404)
+    
+    db.session.add(referral)
+    db.session.commit()
+    
+    return jsonify({
+        'success': True,
+        'message': 'Referral created',
+        'referral': referral.to_dict()
+    }), 201
 
-    if c["total_deposit"] < MIN_BALANCE:
-        cur.close(); conn.close()
-        return err(f"Client's total deposits (${c['total_deposit']:.2f}) is below minimum (${MIN_BALANCE})")
 
-    today = _today()
-
-    cur.execute(
-        "SELECT 1 FROM daily_trade_log WHERE user_id=%s AND date=%s", (uid, today)
+@app.route('/api/admin/deposit/<deposit_id>/approve', methods=['POST'])
+@admin_required
+def admin_approve_deposit(deposit_id):
+    """Admin: Approve deposit and process referral commission"""
+    data = request.get_json()
+    deposit = Deposit.query.get(deposit_id)
+    
+    if not deposit:
+        return jsonify({'error': 'Deposit not found'}), 404
+    
+    if deposit.status != 'PENDING':
+        return jsonify({'error': 'Deposit already processed'}), 400
+    
+    # Approve deposit
+    deposit.status = 'APPROVED'
+    deposit.approved_at = datetime.utcnow()
+    
+    user = deposit.user
+    user.deposit_balance += deposit.amount
+    
+    # Add deposit transaction
+    txn = Transaction(
+        user_id=user.id,
+        type='DEPOSIT',
+        amount=deposit.amount,
+        balance_before=user.deposit_balance - deposit.amount,
+        balance_after=user.deposit_balance,
+        description='Deposit approved',
+        reference=deposit.reference
     )
-    if cur.fetchone():
-        cur.close(); conn.close()
-        return err(f"{c['name']} already has a trade logged for {today}")
-
-    price       = get_live_price(TRADE_SYMBOL)
-    pct_gain    = random.uniform(0.003, 0.005)
-    close_price = round(price * (1 + pct_gain), 2)
-    price_diff  = close_price - price
-    if price_diff <= 0:
-        cur.close(); conn.close()
-        return err("Price diff was zero — try again")
-
-    client_profit   = DAILY_PROFIT_USD
-    client_quantity = round(client_profit / price_diff, 6)
-
-    now              = datetime.datetime.utcnow()
-    open_minutes_ago = random.randint(30, 90)
-    opened_at        = (now - datetime.timedelta(minutes=open_minutes_ago)).isoformat()
-    closed_at        = now.isoformat()
-    trade_id         = _uid()
-    sl               = round(price * 0.985, 2)
-    tp               = close_price
-
-    try:
-        cur.execute(
-            "INSERT INTO daily_trade_log(id,user_id,account_id,trade_id,"
-            "profit,date,created_at) VALUES(%s,%s,%s,%s,%s,%s,%s) "
-            "ON CONFLICT (user_id, date) DO NOTHING",
-            (_uid(), c["id"], c["account_id"], trade_id, client_profit, today, _now())
-        )
-        if cur.rowcount == 0:
-            conn.rollback()
-            cur.close(); conn.close()
-            return err(f"{c['name']} already traded today (race with another run)")
-
-        cur.execute(
-            "INSERT INTO trades(id,user_id,account_id,symbol,direction,"
-            "entry_price,quantity,stop_loss,take_profit,close_price,"
-            "pnl,status,close_reason,opened_at,closed_at) "
-            "VALUES(%s,%s,%s,%s,'BUY',%s,%s,%s,%s,%s,%s,'CLOSED','TAKE_PROFIT',%s,%s)",
-            (trade_id, c["id"], c["account_id"],
-             TRADE_SYMBOL, price, client_quantity, sl, tp,
-             close_price, client_profit, opened_at, closed_at)
-        )
-        cur.execute(
-            "UPDATE accounts SET balance=balance+%s, equity=equity+%s WHERE user_id=%s",
-            (client_profit, client_profit, c["id"])
-        )
-        conn.commit()
-        log.info(f"Manual single-client trade backfill: {c['name']} +${client_profit}")
-    except Exception as e:
-        conn.rollback()
-        cur.close(); conn.close()
-        return err(f"Failed to record trade: {e}")
-
-    cur.close(); conn.close()
-    return ok({
-        "message": f"Trade backfilled for {c['name']}: +${client_profit}",
-        "profit": client_profit,
-        "total_deposit": c["total_deposit"],
+    db.session.add(txn)
+    
+    # Process referral commission if applicable
+    if (user.referrer_id and 
+        deposit.amount >= MIN_DEPOSIT_FOR_COMMISSION and
+        REFERRAL_COMMISSION_PCT > 0):
+        
+        # Find pending referral
+        referral = Referral.query.filter_by(
+            referrer_id=user.referrer_id,
+            referred_id=user.id,
+            status='PENDING'
+        ).first()
+        
+        if referral:
+            commission = deposit.amount * Decimal(str(REFERRAL_COMMISSION_PCT))
+            referrer = user.referrer  # The person who referred this user
+            
+            # Credit commission
+            referrer.ref_balance += commission
+            referral.commission_amount = commission
+            referral.status = 'CREDITED'
+            referral.credited_at = datetime.utcnow()
+            
+            # Add referral commission transaction
+            ref_txn = Transaction(
+                user_id=referrer.id,
+                type='REFERRAL_COMMISSION',
+                amount=commission,
+                balance_before=referrer.ref_balance - commission,
+                balance_after=referrer.ref_balance,
+                description=f'Commission from {user.name}\'s ${deposit.amount} deposit',
+                reference=f'REF_{referral.id}'
+            )
+            db.session.add(ref_txn)
+    
+    db.session.commit()
+    
+    return jsonify({
+        'success': True,
+        'message': 'Deposit approved and commission processed',
+        'deposit': deposit.to_dict()
     })
 
-@app.route("/api/admin/trade/log")
+
+@app.route('/api/admin/deposit/<deposit_id>/reject', methods=['POST'])
 @admin_required
-def admin_trade_log():
-    conn = get_db()
-    cur  = conn.cursor()
-    cur.execute(
-        "SELECT d.*, u.name AS user_name FROM daily_trade_log d "
-        "JOIN users u ON d.user_id=u.id ORDER BY d.created_at DESC LIMIT 100"
+def admin_reject_deposit(deposit_id):
+    """Admin: Reject deposit"""
+    deposit = Deposit.query.get(deposit_id)
+    
+    if not deposit:
+        return jsonify({'error': 'Deposit not found'}), 404
+    
+    if deposit.status != 'PENDING':
+        return jsonify({'error': 'Deposit already processed'}), 400
+    
+    deposit.status = 'REJECTED'
+    db.session.commit()
+    
+    return jsonify({
+        'success': True,
+        'message': 'Deposit rejected'
+    })
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# PAGE ROUTES
+# ════════════════════════════════════════════════════════════════════════════
+
+@app.route('/')
+def index():
+    """Login page"""
+    if 'user_id' in session:
+        return redirect(url_for('dashboard'))
+    return redirect(url_for('login'))
+
+
+@app.route('/login')
+def login_page():
+    """Login page"""
+    return render_template('login.html')
+
+
+@app.route('/register')
+def register_page():
+    """Registration page"""
+    return render_template('register.html')
+
+
+@app.route('/dashboard')
+@login_required
+def dashboard():
+    """Client dashboard"""
+    user = User.query.get(session['user_id'])
+    return render_template('dashboard.html', user=user)
+
+
+@app.route('/admin/dashboard')
+@admin_required
+def admin_dashboard():
+    """Admin dashboard"""
+    return render_template('admin/dashboard.html')
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# ERROR HANDLERS
+# ════════════════════════════════════════════════════════════════════════════
+
+@app.errorhandler(404)
+def not_found(e):
+    return jsonify({'error': 'Not found'}), 404
+
+
+@app.errorhandler(500)
+def server_error(e):
+    db.session.rollback()
+    return jsonify({'error': 'Server error'}), 500
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# CLI COMMANDS FOR TESTING
+# ════════════════════════════════════════════════════════════════════════════
+
+@app.cli.command()
+def init_db():
+    """Initialize database"""
+    db.create_all()
+    print('✓ Database initialized')
+
+
+@app.cli.command()
+def create_admin():
+    """Create admin user"""
+    name = input('Admin name: ')
+    email = input('Admin email: ')
+    password = input('Admin password: ')
+    phone = input('Admin phone: ')
+    
+    admin = User(
+        name=name,
+        email=email,
+        phone=phone,
+        is_admin=True,
+        referral_code=str(uuid.uuid4()).hex[:REFERRAL_CODE_LENGTH].upper()
     )
-    rows = cur.fetchall()
-    cur.close(); conn.close()
-    return ok([dict(r) for r in rows])
-
-@app.route("/api/admin/trades")
-@admin_required
-def admin_trades():
-    status = request.args.get("status","").upper()
-    conn   = get_db()
-    cur    = conn.cursor()
-    if status:
-        cur.execute(
-            "SELECT t.*, u.name AS user_name FROM trades t "
-            "JOIN users u ON t.user_id=u.id "
-            "WHERE t.status=%s ORDER BY t.opened_at DESC", (status,)
-        )
-    else:
-        cur.execute(
-            "SELECT t.*, u.name AS user_name FROM trades t "
-            "JOIN users u ON t.user_id=u.id ORDER BY t.opened_at DESC"
-        )
-    trades = cur.fetchall()
-    cur.close(); conn.close()
-    return ok([dict(t) for t in trades])
-
-@app.route("/api/admin/referrals")
-@admin_required
-def admin_referrals():
-    conn = get_db()
-    cur  = conn.cursor()
-    cur.execute(
-        "SELECT r.*, u1.name AS referrer_name, u1.email AS referrer_email, "
-        "u2.name AS referred_name, u2.email AS referred_email "
-        "FROM referrals r JOIN users u1 ON r.referrer_id=u1.id "
-        "JOIN users u2 ON r.referred_id=u2.id ORDER BY r.created_at DESC"
-    )
-    refs = cur.fetchall()
-    cur.close(); conn.close()
-    return ok([dict(r) for r in refs])
-
-@app.route("/api/admin/notifications/send", methods=["POST"])
-@admin_required
-def admin_send_notification():
-    d       = request.json or {}
-    title   = d.get("title","").strip()
-    message = d.get("message","").strip()
-    ntype   = d.get("type","INFO").upper()
-    user_id = d.get("user_id","").strip()
-    broadcast = bool(d.get("broadcast", False))
-
-    if not title or not message:
-        return err("title and message are required")
-    if not broadcast and not user_id:
-        return err("Provide either user_id or broadcast=true")
-
-    conn = get_db()
-    cur  = conn.cursor()
-
-    if broadcast:
-        cur.execute("SELECT id FROM users WHERE role='client'")
-        targets = [r["id"] for r in cur.fetchall()]
-    else:
-        cur.execute("SELECT id FROM users WHERE id=%s AND role='client'", (user_id,))
-        row = cur.fetchone()
-        if not row:
-            cur.close(); conn.close()
-            return err("Client not found", 404)
-        targets = [row["id"]]
-
-    for uid in targets:
-        create_notification(cur, uid, title, message, ntype)
-    conn.commit()
-    cur.close(); conn.close()
-    return ok({"message": f"Notification sent to {len(targets)} client(s)"})
-
-@app.route("/api/admin/scheduler/status")
-@admin_required
-def scheduler_status():
-    now      = datetime.datetime.utcnow()
-    next_run = now.replace(hour=TRADE_HOUR, minute=0, second=0, microsecond=0)
-    if next_run <= now:
-        next_run += datetime.timedelta(days=1)
-    hours_left = round((next_run - now).total_seconds() / 3600, 1)
-    return ok({
-        "running":           _scheduler_started,
-        "trade_hour_utc":    TRADE_HOUR,
-        "trade_hour_eat":    TRADE_HOUR + 3,
-        "next_run_utc":      next_run.isoformat(),
-        "hours_until_run":   hours_left,
-        "daily_profit_rate": f"${DAILY_PROFIT_USD}",
-        "profit_basis":      f"${DAILY_PROFIT_USD} per eligible client per day (min deposit: ${MIN_BALANCE})",
-        "min_balance":       MIN_BALANCE,
-        "min_withdrawal":    MIN_WITHDRAWAL,
-        "symbol":            TRADE_SYMBOL,
-        "deposit_packages":  DEPOSIT_PACKAGES,
-    })
-
-@app.route("/api/admin/referral/settings")
-@admin_required
-def admin_referral_settings():
-    """View current referral commission settings"""
-    return ok({
-        "commission_percentage": REFERRAL_COMMISSION_PCT,
-        "min_deposit_for_commission": REFERRAL_MIN_DEPOSIT,
-        "message": f"Referral commission is currently set to {REFERRAL_COMMISSION_PCT}% for deposits >= ${REFERRAL_MIN_DEPOSIT}"
-    })
-
-@app.route("/api/admin/referral/set-commission", methods=["POST"])
-@admin_required
-def admin_set_referral_commission():
-    """
-    Update referral commission percentage.
-    Changes only apply to new deposits after this is called.
-    Requires environment variable REFERRAL_COMMISSION_PCT to persist across restarts.
-    """
-    global REFERRAL_COMMISSION_PCT
+    admin.set_password(password)
+    admin.set_pin('000000')
     
-    d = request.json or {}
-    new_commission = float(d.get("commission_percentage", REFERRAL_COMMISSION_PCT))
+    db.session.add(admin)
+    db.session.commit()
     
-    if new_commission < 0 or new_commission > 100:
-        return err("Commission percentage must be between 0 and 100")
-    
-    old_commission = REFERRAL_COMMISSION_PCT
-    REFERRAL_COMMISSION_PCT = new_commission
-    
-    log.info(f"✓ Admin updated referral commission: {old_commission}% → {new_commission}%")
-    
-    return ok({
-        "message": f"Referral commission updated from {old_commission}% to {new_commission}%",
-        "previous": old_commission,
-        "current": new_commission,
-        "note": "To persist across restarts, set REFERRAL_COMMISSION_PCT environment variable"
-    })
+    print(f'✓ Admin created: {email}')
 
-# ── STARTUP ───────────────────────────────────────────────────────────────────
-init_db()
-start_scheduler()
 
-if __name__ == "__main__":
-    print("\n" + "="*60)
-    print("   Crown Markets v5.32 — $3.5 DAILY PROFIT PER CLIENT (FLAT)")
-    print("="*60)
-    print(f"   URL    : http://127.0.0.1:8080")
-    print(f"   Client : john@test.com  / demo1234")
-    print(f"   Admin  : admin@test.com / admin1234")
-    print(f"   Rate   : ${DAILY_PROFIT_USD} flat per eligible client daily at {TRADE_HOUR:02d}:00 UTC ({TRADE_HOUR+3:02d}:00 EAT)")
-    print(f"   Eligible min total deposit: ${MIN_BALANCE:.0f}")
-    print(f"   Min withdrawal per transaction: ${MIN_WITHDRAWAL:.0f}")
-    print(f"   Symbol : {TRADE_SYMBOL}")
-    print(f"   Deposit: ${250} min  |  Withdrawal: ${MIN_WITHDRAWAL} min (unlimited max)  |  Ref Commission: {REFERRAL_COMMISSION_PCT}%")
-    print(f"   Packages: {', '.join(f'${p}' for p in DEPOSIT_PACKAGES)}")
-    print(f"   Binance: {'CONNECTED ✓' if bnb else 'fallback prices'}")
-    print(f"   TRC20  : {'SET ✓' if MANUAL_WALLETS.get('TRC20') else 'NOT SET ✗'}")
-    print(f"   M-Pesa : STK Push | Env: {MPESA_ENV} | Shortcode: {MPESA_SHORTCODE}")
-    print(f"   KES/USD: {KES_PER_USD} | Callback: {MPESA_CALLBACK_URL}")
-    print(f"   Forgot Password: /forgot-password (email+phone+PIN verification)")
-    print(f"   Referral: /api/referral/info (public endpoint for reg page)")
-    print(f"   Admin Referral: /api/admin/referral/settings (view) & /api/admin/referral/set-commission (update)")
-    print(f"   FIXED v5.33: Admin-configurable referral commission, no min withdrawal limit")
-    print("="*60 + "\n")
-    app.run(debug=False, port=8080, host="0.0.0.0")
+if __name__ == '__main__':
+    app.run(debug=True)
