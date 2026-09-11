@@ -90,7 +90,7 @@ if MPESA_ENV == "production":
 else:
     MPESA_BASE_URL = "https://sandbox.safaricom.co.ke"
 
-REFERRAL_COMMISSION_PCT = float(os.environ.get("REFERRAL_COMMISSION_PCT", "10.0"))  # Admin can set via env
+REFERRAL_COMMISSION_PCT = float(os.environ.get("REFERRAL_COMMISSION_PCT", "15.0"))  # Admin can set via env
 REFERRAL_MIN_DEPOSIT    = float(os.environ.get("REFERRAL_MIN_DEPOSIT", "250.0"))
 
 # ── DATABASE ──────────────────────────────────────────────────────────────────
@@ -2262,7 +2262,7 @@ start_scheduler()
 
 if __name__ == "__main__":
     print("\n" + "="*60)
-    print("   Crown Markets v5.32 — $3.5 DAILY PROFIT PER CLIENT (FLAT)")
+    print("   Crown Markets v5.33 — $3.5 DAILY PROFIT PER CLIENT (FLAT)")
     print("="*60)
     print(f"   URL    : http://127.0.0.1:8080")
     print(f"   Client : john@test.com  / demo1234")
