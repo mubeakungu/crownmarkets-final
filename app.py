@@ -499,9 +499,10 @@ def process_referral_commission(tx_id, user_id, amount_usd):
     try:
         if existing_ref:
             # Update existing referral: add commission, change status to CREDITED
-            commission = round(amount_usd * REFERRAL_COMMISSION_PCT, 2)
+            # Calculate 15% commission on this deposit
+            commission = round(amount_usd * REFERRAL_COMMISSION_PCT / 100, 2)
             cur.execute(
-                "UPDATE referrals SET commission_usd=%s, status='CREDITED', "
+                "UPDATE referrals SET commission_usd=commission_usd+%s, status='CREDITED', "
                 "triggered_by=%s WHERE id=%s",
                 (commission, tx_id, existing_ref["id"])
             )
@@ -516,7 +517,8 @@ def process_referral_commission(tx_id, user_id, amount_usd):
                 log.info(f"✓ Referral confirmed (0% commission): {referrer['name']} ← {user['name']}")
         else:
             # Create new referral if doesn't exist (backward compatibility for old users)
-            commission = round(amount_usd * REFERRAL_COMMISSION_PCT, 2)
+            # Calculate 15% commission on this deposit
+            commission = round(amount_usd * REFERRAL_COMMISSION_PCT / 100, 2)
             cur.execute(
                 "INSERT INTO referrals(id,referrer_id,referred_id,commission_usd,"
                 "status,triggered_by,created_at) VALUES(%s,%s,%s,%s,'CREDITED',%s,%s)",
