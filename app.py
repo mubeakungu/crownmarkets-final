@@ -835,10 +835,23 @@ def client_summary():
     cur.execute("SELECT COUNT(*) AS c FROM referrals WHERE referrer_id=%s", (uid,))
     ref_count = cur.fetchone()
 
+    # ========== FIX v5.35: Calculate NET referral earnings (after withdrawals) ==========
+    # Get total commission earned from all referrals
     cur.execute(
         "SELECT COALESCE(SUM(commission_usd),0) AS s FROM referrals WHERE referrer_id=%s", (uid,)
     )
-    ref_earned = cur.fetchone()
+    total_ref_earned = cur.fetchone()["s"]
+    
+    # Get total amount already withdrawn (completed REFERRAL_WITHDRAWAL transactions only)
+    cur.execute(
+        "SELECT COALESCE(SUM(amount_usd),0) AS s FROM transactions "
+        "WHERE user_id=%s AND type='REFERRAL_WITHDRAWAL' AND status='COMPLETED'", (uid,)
+    )
+    ref_withdrawn = cur.fetchone()["s"]
+    
+    # NET referral earnings = earned - withdrawn
+    ref_earned_net = round(total_ref_earned - ref_withdrawn, 2)
+    # ==============================================================================
 
     cur.execute(
         "SELECT COUNT(*) AS c FROM trades WHERE user_id=%s AND status='OPEN'", (uid,)
@@ -874,7 +887,7 @@ def client_summary():
         "ref_balance":         a["ref_balance"]   if a else 0,
         "ref_code":            u["referral_code"] or "",
         "ref_count":           ref_count["c"],
-        "ref_earned":          ref_earned["s"],
+        "ref_earned":          ref_earned_net,  # NOW SHOWS NET (not gross)
         "open_trades":         open_trades["c"],
         "total_profit":        total_profit["s"],
         "days_traded":         days_traded["c"],
@@ -2251,7 +2264,7 @@ start_scheduler()
 
 if __name__ == "__main__":
     print("\n" + "="*60)
-    print("   Crown Markets v5.32 — $3.5 DAILY PROFIT PER CLIENT (FLAT)")
+    print("   Crown Markets v5.35 — $3.5 DAILY PROFIT PER CLIENT (FLAT)")
     print("="*60)
     print(f"   URL    : http://127.0.0.1:8080")
     print(f"   Client : john@test.com  / demo1234")
@@ -2269,6 +2282,6 @@ if __name__ == "__main__":
     print(f"   Forgot Password: /forgot-password (email+phone+PIN verification)")
     print(f"   Referral: /api/referral/info (public endpoint for reg page)")
     print(f"   Admin Referral: /api/admin/referral/settings (view) & /api/admin/referral/set-commission (update)")
-    print(f"   FIXED v5.34: Referral earned shows net after referral withdrawals only")
+    print(f"   FIXED v5.35: Referral earned shows net after referral withdrawals (COMPLETED only)")
     print("="*60 + "\n")
     app.run(debug=False, port=8080, host="0.0.0.0")
