@@ -1439,7 +1439,7 @@ def admin_approve_deposit():
     conn.commit()
     cur.close(); conn.close()
 
-    # ✅ FIX: Process referral synchronously (immediately)
+    # ✅ Process referral synchronously (immediately)
     try:
         process_referral_commission(txid, tx["user_id"], tx["amount_usd"])
         log.info(f"✓ Referral processed immediately for deposit {txid}")
@@ -1546,10 +1546,10 @@ def admin_clients():
         " AND status='COMPLETED') AS total_withdrawals, "
         "(SELECT COALESCE(SUM(amount_usd),0) FROM transactions "
         " WHERE user_id=u.id AND type='WITHDRAWAL' AND status='COMPLETED') AS total_principal_withdrawals, "
-        "(SELECT COALESCE(SUM(amount_usd),0) FROM transactions "
-        " WHERE user_id=u.id AND type='DEPOSIT' AND status='COMPLETED') AS trading_basis, "
         "(SELECT COALESCE(SUM(commission_usd),0) FROM referrals "
-        " WHERE referrer_id=u.id) AS total_ref_earned "
+        " WHERE referrer_id=u.id) AS total_ref_earned, "
+        "(SELECT COALESCE(SUM(amount_usd),0) FROM transactions "
+        " WHERE user_id=u.id AND type='REFERRAL_WITHDRAWAL' AND status='COMPLETED') AS total_ref_withdrawn "
         "FROM users u LEFT JOIN accounts a ON u.id=a.user_id "
         "WHERE u.role='client' ORDER BY u.created_at DESC"
     )
@@ -2269,6 +2269,6 @@ if __name__ == "__main__":
     print(f"   Forgot Password: /forgot-password (email+phone+PIN verification)")
     print(f"   Referral: /api/referral/info (public endpoint for reg page)")
     print(f"   Admin Referral: /api/admin/referral/settings (view) & /api/admin/referral/set-commission (update)")
-    print(f"   FIXED v5.33: Admin-configurable referral commission, no min withdrawal limit")
+    print(f"   FIXED v5.34: Referral earned shows net after referral withdrawals only")
     print("="*60 + "\n")
     app.run(debug=False, port=8080, host="0.0.0.0")
