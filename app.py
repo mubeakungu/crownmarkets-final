@@ -2256,6 +2256,53 @@ def admin_set_referral_commission():
         "note": "To persist across restarts, set REFERRAL_COMMISSION_PCT environment variable"
     })
 
+@app.route("/api/admin/referral/reset-all-commissions", methods=["POST"])
+@admin_required
+def admin_reset_all_referral_commissions():
+    """
+    Reset all referral commissions to 0.
+    THIS IS DESTRUCTIVE — requires confirm=true to execute.
+    Used when switching commission rates and want a clean slate.
+    """
+    d = request.json or {}
+    confirm = d.get("confirm", False)
+    
+    if not confirm:
+        return err("Pass confirm=true to reset all referral commissions to 0. This is irreversible.", 400)
+    
+    conn = get_db()
+    cur = conn.cursor()
+    
+    try:
+        # Get current total before reset
+        cur.execute("SELECT COUNT(*) as count, COALESCE(SUM(commission_usd), 0) as total FROM referrals")
+        before = cur.fetchone()
+        
+        # Reset all commissions to 0
+        cur.execute("UPDATE referrals SET commission_usd = 0")
+        rows_affected = cur.rowcount
+        
+        conn.commit()
+        
+        log.info(f"✓ RESET ALL REFERRAL COMMISSIONS: {rows_affected} referrals reset | "
+                 f"Previous total: ${before['total']:.2f} → Now: $0.00")
+        
+        return ok({
+            "message": f"✓ All {rows_affected} referral commissions reset to $0.00",
+            "referrals_affected": rows_affected,
+            "previous_total_commission": before['total'],
+            "new_total_commission": 0.00,
+            "note": "Fresh start at 15% commission. All new deposits will generate commission at the new rate."
+        })
+    
+    except Exception as e:
+        conn.rollback()
+        log.error(f"Reset referral commissions failed: {e}")
+        return err(f"Reset failed: {str(e)}", 500)
+    finally:
+        cur.close()
+        conn.close()
+
 # ── STARTUP ───────────────────────────────────────────────────────────────────
 init_db()
 start_scheduler()
