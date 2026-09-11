@@ -74,6 +74,43 @@
       border-color: rgba(212, 175, 55, 0.32);
     }
 
+    /* Referral Banner */
+    .referral-banner {
+      display: none;
+      background: linear-gradient(135deg, rgba(0, 255, 65, 0.08), rgba(212, 175, 55, 0.08));
+      border: 1px solid rgba(0, 255, 65, 0.3);
+      border-radius: 8px;
+      padding: 14px;
+      margin-bottom: 18px;
+      text-align: center;
+      animation: slideIn 0.3s ease;
+    }
+
+    .referral-banner.active {
+      display: block;
+    }
+
+    .referral-banner-label {
+      font-size: 11px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      margin-bottom: 4px;
+    }
+
+    .referral-banner-text {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--accent-green);
+    }
+
+    .referral-code-display {
+      font-size: 10px;
+      color: var(--text-muted);
+      margin-top: 6px;
+      word-break: break-all;
+    }
+
     /* Logo Section */
     .logo-section {
       text-align: center;
@@ -397,6 +434,13 @@
         <div class="brand-tagline">Trade Global • Invest Smart • Grow With Confidence</div>
       </div>
 
+      <!-- Referral Banner -->
+      <div class="referral-banner" id="refBanner">
+        <div class="referral-banner-label">✓ Referred by</div>
+        <div class="referral-banner-text" id="referrerName">Loading...</div>
+        <div class="referral-code-display">Code: <span id="refCodeDisplay"></span></div>
+      </div>
+
       <div class="subtitle">Create your account</div>
       <div class="subtitle-sub">Get started in seconds</div>
 
@@ -451,6 +495,9 @@
           </div>
         </div>
 
+        <!-- Hidden referral code field -->
+        <input type="hidden" id="refCode" name="ref_code" value="">
+
         <!-- Submit Button -->
         <button type="submit" class="btn" id="registerBtn">
           <span id="btnLabel">Create account</span>
@@ -478,6 +525,10 @@
       const btnEl = document.getElementById('registerBtn');
       const btnLabel = document.getElementById('btnLabel');
       const btnSpinner = document.getElementById('btnSpinner');
+      const refCodeInput = document.getElementById('refCode');
+      const refBanner = document.getElementById('refBanner');
+      const referrerNameEl = document.getElementById('referrerName');
+      const refCodeDisplay = document.getElementById('refCodeDisplay');
 
       const fields = {
         name: document.getElementById('name'),
@@ -487,6 +538,41 @@
         pass: document.getElementById('pass'),
         pass2: document.getElementById('pass2')
       };
+
+      // ── Extract ref code from URL ──────────────────────────────────────────
+      function getUrlParam(param) {
+        const searchParams = new URLSearchParams(window.location.search);
+        return searchParams.get(param) || '';
+      }
+
+      function loadReferralInfo() {
+        const refCode = getUrlParam('ref');
+        if (!refCode) return;
+
+        refCodeInput.value = refCode;
+        refCodeDisplay.textContent = refCode;
+
+        // Attempt to fetch referrer details from backend
+        fetch(`/api/referral/info?code=${encodeURIComponent(refCode)}`)
+          .then(r => r.json())
+          .then(data => {
+            if (data.success && data.data && data.data.referrer_name) {
+              referrerNameEl.textContent = data.data.referrer_name;
+              refBanner.classList.add('active');
+            } else {
+              // Code valid but no name available; show code anyway
+              referrerNameEl.textContent = 'Member #' + refCode.substring(0, 4);
+              refBanner.classList.add('active');
+            }
+          })
+          .catch(err => {
+            // Silent fail — show banner with code
+            referrerNameEl.textContent = 'Member #' + refCode.substring(0, 4);
+            refBanner.classList.add('active');
+          });
+      }
+
+      loadReferralInfo();
 
       // Password visibility toggles
       document.querySelectorAll('.toggle-visibility').forEach(btn => {
@@ -536,6 +622,7 @@
         const pin = fields.pin.value;
         const pass = fields.pass.value;
         const pass2 = fields.pass2.value;
+        const ref_code = refCodeInput.value;
 
         if (!name || !email || !phone || !pin || !pass || !pass2) {
           const missing = Object.keys(fields).filter(k => !fields[k].value.trim());
@@ -570,7 +657,15 @@
             method: 'POST',
             credentials: 'same-origin',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, email, phone, pin, password: pass, admin: false })
+            body: JSON.stringify({
+              name,
+              email,
+              phone,
+              pin,
+              password: pass,
+              ref_code: ref_code,
+              admin: false
+            })
           });
 
           const d = await r.json();
