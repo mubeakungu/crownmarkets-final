@@ -142,8 +142,10 @@ CREATE TABLE IF NOT EXISTS referrals (
     referrer_id    TEXT,
     referred_id    TEXT,
     commission_usd REAL DEFAULT 0,
-    status         TEXT DEFAULT 'CREDITED',
+    status         TEXT DEFAULT 'PENDING',
     triggered_by   TEXT,
+    approved_by    TEXT,
+    approved_at    TEXT,
     created_at     TEXT
 );
 CREATE TABLE IF NOT EXISTS trades (
@@ -188,6 +190,8 @@ CREATE TABLE IF NOT EXISTS notifications (
         ("referral_code", "users",    "''"),
         ("referred_by",   "users",    "NULL"),
         ("ref_balance",   "accounts", "0"),
+        ("approved_by",   "referrals", "NULL"),
+        ("approved_at",   "referrals", "NULL"),
     ]:
         try:
             cur.execute(f"ALTER TABLE {tbl} ADD COLUMN {col} TEXT DEFAULT {defval}")
@@ -466,8 +470,8 @@ def _can_acquire_scheduler_lock():
 def process_referral_commission(tx_id, user_id, amount_usd):
     """
     Process referral commission on deposit.
-    If referral was already created at registration, update it.
-    If not, create it (backward compatibility).
+    Creates/updates referral record with status PENDING for admin approval.
+    Admin must approve to credit the ref_balance.
     """
     if amount_usd < REFERRAL_MIN_DEPOSIT:
         return
@@ -497,45 +501,30 @@ def process_referral_commission(tx_id, user_id, amount_usd):
     existing_ref = cur.fetchone()
 
     try:
+        # Calculate commission
+        commission = round(amount_usd * REFERRAL_COMMISSION_PCT / 100.0, 2)
+        
         if existing_ref:
-            # Update existing referral: add commission, change status to CREDITED
-            commission = round(amount_usd * REFERRAL_COMMISSION_PCT, 2)
+            # Update existing referral: set commission, leave status as PENDING
             cur.execute(
-                "UPDATE referrals SET commission_usd=%s, status='CREDITED', "
+                "UPDATE referrals SET commission_usd=%s, status='PENDING', "
                 "triggered_by=%s WHERE id=%s",
                 (commission, tx_id, existing_ref["id"])
             )
-            
-            if commission > 0:
-                cur.execute(
-                    "UPDATE accounts SET ref_balance=ref_balance+%s WHERE user_id=%s",
-                    (commission, referrer["id"])
-                )
-                log.info(f"✓ Referral commission: {referrer['name']} +${commission}")
-            else:
-                log.info(f"✓ Referral confirmed (0% commission): {referrer['name']} ← {user['name']}")
+            log.info(f"✓ Referral updated (PENDING APPROVAL): {referrer['name']} ← {user['name']} | ${commission}")
         else:
-            # Create new referral if doesn't exist (backward compatibility for old users)
-            commission = round(amount_usd * REFERRAL_COMMISSION_PCT, 2)
+            # Create new referral with PENDING status (no auto-credit)
             cur.execute(
                 "INSERT INTO referrals(id,referrer_id,referred_id,commission_usd,"
-                "status,triggered_by,created_at) VALUES(%s,%s,%s,%s,'CREDITED',%s,%s)",
+                "status,triggered_by,created_at) VALUES(%s,%s,%s,%s,'PENDING',%s,%s)",
                 (_uid(), referrer["id"], user_id, commission, tx_id, _now())
             )
-            
-            if commission > 0:
-                cur.execute(
-                    "UPDATE accounts SET ref_balance=ref_balance+%s WHERE user_id=%s",
-                    (commission, referrer["id"])
-                )
-                log.info(f"✓ Referral commission: {referrer['name']} +${commission}")
-            else:
-                log.info(f"✓ Referral tracked (0% commission): {referrer['name']} ← {user['name']}")
+            log.info(f"✓ Referral created (PENDING APPROVAL): {referrer['name']} ← {user['name']} | ${commission}")
         
         conn.commit()
     except Exception as e:
         conn.rollback()
-        log.warning(f"Referral commission failed: {e}")
+        log.warning(f"Referral commission setup failed: {e}")
     finally:
         cur.close()
         conn.close()
