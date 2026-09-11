@@ -90,8 +90,8 @@ if MPESA_ENV == "production":
 else:
     MPESA_BASE_URL = "https://sandbox.safaricom.co.ke"
 
-REFERRAL_COMMISSION_PCT = 0.0
-REFERRAL_MIN_DEPOSIT    = 250.0
+REFERRAL_COMMISSION_PCT = float(os.environ.get("REFERRAL_COMMISSION_PCT", "10.0"))  # Admin can set via env
+REFERRAL_MIN_DEPOSIT    = float(os.environ.get("REFERRAL_MIN_DEPOSIT", "250.0"))
 
 # ── DATABASE ──────────────────────────────────────────────────────────────────
 def get_db():
@@ -780,7 +780,26 @@ def api_forgot_password():
     log.info(f"Password reset via forgot-password flow: {u['email']}")
     return ok({"message": "Password updated. You can now sign in with your new password."})
 
-# ── CLIENT API ────────────────────────────────────────────────────────────────
+# ── PUBLIC REFERRAL API ──────────────────────────────────────────────────────
+@app.route("/api/referral/info")
+def referral_info():
+    """Lookup referrer name by referral code (public endpoint for registration page)"""
+    code = request.args.get("code","").strip().upper()
+    if not code:
+        return err("Referral code is required")
+    
+    conn = get_db()
+    cur  = conn.cursor()
+    cur.execute("SELECT id, name FROM users WHERE referral_code=%s", (code,))
+    u = cur.fetchone()
+    cur.close(); conn.close()
+    
+    if not u:
+        return err("Referral code not found", 404)
+    
+    return ok({"referrer_name": u["name"]})
+
+# ── CLIENT API ────────────────────────────────────────────────────────────────────
 @app.route("/api/client/summary")
 @login_required
 def client_summary():
@@ -902,7 +921,7 @@ def client_referral_withdraw():
 
     if not addr:            return err("Enter your USDT wallet address")
     if net not in NETWORKS: return err("Invalid network")
-    if amt < 16:            return err("Minimum referral withdrawal is $16")
+    if amt <= 0:            return err("Withdrawal amount must be greater than $0")
 
     conn = get_db()
     cur  = conn.cursor()
@@ -2199,6 +2218,44 @@ def scheduler_status():
         "deposit_packages":  DEPOSIT_PACKAGES,
     })
 
+@app.route("/api/admin/referral/settings")
+@admin_required
+def admin_referral_settings():
+    """View current referral commission settings"""
+    return ok({
+        "commission_percentage": REFERRAL_COMMISSION_PCT,
+        "min_deposit_for_commission": REFERRAL_MIN_DEPOSIT,
+        "message": f"Referral commission is currently set to {REFERRAL_COMMISSION_PCT}% for deposits >= ${REFERRAL_MIN_DEPOSIT}"
+    })
+
+@app.route("/api/admin/referral/set-commission", methods=["POST"])
+@admin_required
+def admin_set_referral_commission():
+    """
+    Update referral commission percentage.
+    Changes only apply to new deposits after this is called.
+    Requires environment variable REFERRAL_COMMISSION_PCT to persist across restarts.
+    """
+    global REFERRAL_COMMISSION_PCT
+    
+    d = request.json or {}
+    new_commission = float(d.get("commission_percentage", REFERRAL_COMMISSION_PCT))
+    
+    if new_commission < 0 or new_commission > 100:
+        return err("Commission percentage must be between 0 and 100")
+    
+    old_commission = REFERRAL_COMMISSION_PCT
+    REFERRAL_COMMISSION_PCT = new_commission
+    
+    log.info(f"✓ Admin updated referral commission: {old_commission}% → {new_commission}%")
+    
+    return ok({
+        "message": f"Referral commission updated from {old_commission}% to {new_commission}%",
+        "previous": old_commission,
+        "current": new_commission,
+        "note": "To persist across restarts, set REFERRAL_COMMISSION_PCT environment variable"
+    })
+
 # ── STARTUP ───────────────────────────────────────────────────────────────────
 init_db()
 start_scheduler()
@@ -2214,13 +2271,15 @@ if __name__ == "__main__":
     print(f"   Eligible min total deposit: ${MIN_BALANCE:.0f}")
     print(f"   Min withdrawal per transaction: ${MIN_WITHDRAWAL:.0f}")
     print(f"   Symbol : {TRADE_SYMBOL}")
-    print(f"   Deposit: ${250} min  |  Withdrawal: ${MIN_WITHDRAWAL} min (unlimited max)  |  Ref Commission: 0% (DISABLED)")
+    print(f"   Deposit: ${250} min  |  Withdrawal: ${MIN_WITHDRAWAL} min (unlimited max)  |  Ref Commission: {REFERRAL_COMMISSION_PCT}%")
     print(f"   Packages: {', '.join(f'${p}' for p in DEPOSIT_PACKAGES)}")
     print(f"   Binance: {'CONNECTED ✓' if bnb else 'fallback prices'}")
     print(f"   TRC20  : {'SET ✓' if MANUAL_WALLETS.get('TRC20') else 'NOT SET ✗'}")
     print(f"   M-Pesa : STK Push | Env: {MPESA_ENV} | Shortcode: {MPESA_SHORTCODE}")
     print(f"   KES/USD: {KES_PER_USD} | Callback: {MPESA_CALLBACK_URL}")
     print(f"   Forgot Password: /forgot-password (email+phone+PIN verification)")
-    print(f"   FIXED v5.32: Referrals sync immediately on deposit approval")
+    print(f"   Referral: /api/referral/info (public endpoint for reg page)")
+    print(f"   Admin Referral: /api/admin/referral/settings (view) & /api/admin/referral/set-commission (update)")
+    print(f"   FIXED v5.33: Admin-configurable referral commission, no min withdrawal limit")
     print("="*60 + "\n")
     app.run(debug=False, port=8080, host="0.0.0.0")
