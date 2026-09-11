@@ -90,7 +90,7 @@ if MPESA_ENV == "production":
 else:
     MPESA_BASE_URL = "https://sandbox.safaricom.co.ke"
 
-REFERRAL_COMMISSION_PCT = float(os.environ.get("REFERRAL_COMMISSION_PCT", "0.0"))  # Admin must set via env or API
+REFERRAL_COMMISSION_PCT = float(os.environ.get("REFERRAL_COMMISSION_PCT", "10.0"))  # Admin can set via env
 REFERRAL_MIN_DEPOSIT    = float(os.environ.get("REFERRAL_MIN_DEPOSIT", "250.0"))
 
 # ── DATABASE ──────────────────────────────────────────────────────────────────
@@ -142,10 +142,8 @@ CREATE TABLE IF NOT EXISTS referrals (
     referrer_id    TEXT,
     referred_id    TEXT,
     commission_usd REAL DEFAULT 0,
-    status         TEXT DEFAULT 'PENDING',
+    status         TEXT DEFAULT 'CREDITED',
     triggered_by   TEXT,
-    approved_by    TEXT,
-    approved_at    TEXT,
     created_at     TEXT
 );
 CREATE TABLE IF NOT EXISTS trades (
@@ -190,8 +188,6 @@ CREATE TABLE IF NOT EXISTS notifications (
         ("referral_code", "users",    "''"),
         ("referred_by",   "users",    "NULL"),
         ("ref_balance",   "accounts", "0"),
-        ("approved_by",   "referrals", "NULL"),
-        ("approved_at",   "referrals", "NULL"),
     ]:
         try:
             cur.execute(f"ALTER TABLE {tbl} ADD COLUMN {col} TEXT DEFAULT {defval}")
@@ -470,8 +466,8 @@ def _can_acquire_scheduler_lock():
 def process_referral_commission(tx_id, user_id, amount_usd):
     """
     Process referral commission on deposit.
-    Creates/updates referral record with status PENDING for admin approval.
-    Admin must approve to credit the ref_balance.
+    If referral was already created at registration, update it.
+    If not, create it (backward compatibility).
     """
     if amount_usd < REFERRAL_MIN_DEPOSIT:
         return
@@ -501,30 +497,45 @@ def process_referral_commission(tx_id, user_id, amount_usd):
     existing_ref = cur.fetchone()
 
     try:
-        # Calculate commission
-        commission = round(amount_usd * REFERRAL_COMMISSION_PCT / 100.0, 2)
-        
         if existing_ref:
-            # Update existing referral: set commission, leave status as PENDING
+            # Update existing referral: add commission, change status to CREDITED
+            commission = round(amount_usd * REFERRAL_COMMISSION_PCT, 2)
             cur.execute(
-                "UPDATE referrals SET commission_usd=%s, status='PENDING', "
+                "UPDATE referrals SET commission_usd=%s, status='CREDITED', "
                 "triggered_by=%s WHERE id=%s",
                 (commission, tx_id, existing_ref["id"])
             )
-            log.info(f"✓ Referral updated (PENDING APPROVAL): {referrer['name']} ← {user['name']} | ${commission}")
+            
+            if commission > 0:
+                cur.execute(
+                    "UPDATE accounts SET ref_balance=ref_balance+%s WHERE user_id=%s",
+                    (commission, referrer["id"])
+                )
+                log.info(f"✓ Referral commission: {referrer['name']} +${commission}")
+            else:
+                log.info(f"✓ Referral confirmed (0% commission): {referrer['name']} ← {user['name']}")
         else:
-            # Create new referral with PENDING status (no auto-credit)
+            # Create new referral if doesn't exist (backward compatibility for old users)
+            commission = round(amount_usd * REFERRAL_COMMISSION_PCT, 2)
             cur.execute(
                 "INSERT INTO referrals(id,referrer_id,referred_id,commission_usd,"
-                "status,triggered_by,created_at) VALUES(%s,%s,%s,%s,'PENDING',%s,%s)",
+                "status,triggered_by,created_at) VALUES(%s,%s,%s,%s,'CREDITED',%s,%s)",
                 (_uid(), referrer["id"], user_id, commission, tx_id, _now())
             )
-            log.info(f"✓ Referral created (PENDING APPROVAL): {referrer['name']} ← {user['name']} | ${commission}")
+            
+            if commission > 0:
+                cur.execute(
+                    "UPDATE accounts SET ref_balance=ref_balance+%s WHERE user_id=%s",
+                    (commission, referrer["id"])
+                )
+                log.info(f"✓ Referral commission: {referrer['name']} +${commission}")
+            else:
+                log.info(f"✓ Referral tracked (0% commission): {referrer['name']} ← {user['name']}")
         
         conn.commit()
     except Exception as e:
         conn.rollback()
-        log.warning(f"Referral commission setup failed: {e}")
+        log.warning(f"Referral commission failed: {e}")
     finally:
         cur.close()
         conn.close()
@@ -835,23 +846,10 @@ def client_summary():
     cur.execute("SELECT COUNT(*) AS c FROM referrals WHERE referrer_id=%s", (uid,))
     ref_count = cur.fetchone()
 
-    # ========== FIX v5.35: Calculate NET referral earnings (after withdrawals) ==========
-    # Get total commission earned from all referrals
     cur.execute(
         "SELECT COALESCE(SUM(commission_usd),0) AS s FROM referrals WHERE referrer_id=%s", (uid,)
     )
-    total_ref_earned = cur.fetchone()["s"]
-    
-    # Get total amount already withdrawn (completed REFERRAL_WITHDRAWAL transactions only)
-    cur.execute(
-        "SELECT COALESCE(SUM(amount_usd),0) AS s FROM transactions "
-        "WHERE user_id=%s AND type='REFERRAL_WITHDRAWAL' AND status='COMPLETED'", (uid,)
-    )
-    ref_withdrawn = cur.fetchone()["s"]
-    
-    # NET referral earnings = earned - withdrawn
-    ref_earned_net = round(total_ref_earned - ref_withdrawn, 2)
-    # ==============================================================================
+    ref_earned = cur.fetchone()
 
     cur.execute(
         "SELECT COUNT(*) AS c FROM trades WHERE user_id=%s AND status='OPEN'", (uid,)
@@ -887,7 +885,7 @@ def client_summary():
         "ref_balance":         a["ref_balance"]   if a else 0,
         "ref_code":            u["referral_code"] or "",
         "ref_count":           ref_count["c"],
-        "ref_earned":          ref_earned_net,  # NOW SHOWS NET (not gross)
+        "ref_earned":          ref_earned["s"],
         "open_trades":         open_trades["c"],
         "total_profit":        total_profit["s"],
         "days_traded":         days_traded["c"],
@@ -1452,7 +1450,7 @@ def admin_approve_deposit():
     conn.commit()
     cur.close(); conn.close()
 
-    # ✅ Process referral synchronously (immediately)
+    # ✅ FIX: Process referral synchronously (immediately)
     try:
         process_referral_commission(txid, tx["user_id"], tx["amount_usd"])
         log.info(f"✓ Referral processed immediately for deposit {txid}")
@@ -1559,10 +1557,10 @@ def admin_clients():
         " AND status='COMPLETED') AS total_withdrawals, "
         "(SELECT COALESCE(SUM(amount_usd),0) FROM transactions "
         " WHERE user_id=u.id AND type='WITHDRAWAL' AND status='COMPLETED') AS total_principal_withdrawals, "
-        "(SELECT COALESCE(SUM(commission_usd),0) FROM referrals "
-        " WHERE referrer_id=u.id) AS total_ref_earned, "
         "(SELECT COALESCE(SUM(amount_usd),0) FROM transactions "
-        " WHERE user_id=u.id AND type='REFERRAL_WITHDRAWAL' AND status='COMPLETED') AS total_ref_withdrawn "
+        " WHERE user_id=u.id AND type='DEPOSIT' AND status='COMPLETED') AS trading_basis, "
+        "(SELECT COALESCE(SUM(commission_usd),0) FROM referrals "
+        " WHERE referrer_id=u.id) AS total_ref_earned "
         "FROM users u LEFT JOIN accounts a ON u.id=a.user_id "
         "WHERE u.role='client' ORDER BY u.created_at DESC"
     )
@@ -2264,7 +2262,7 @@ start_scheduler()
 
 if __name__ == "__main__":
     print("\n" + "="*60)
-    print("   Crown Markets v5.35 — $3.5 DAILY PROFIT PER CLIENT (FLAT)")
+    print("   Crown Markets v5.32 — $3.5 DAILY PROFIT PER CLIENT (FLAT)")
     print("="*60)
     print(f"   URL    : http://127.0.0.1:8080")
     print(f"   Client : john@test.com  / demo1234")
@@ -2282,6 +2280,6 @@ if __name__ == "__main__":
     print(f"   Forgot Password: /forgot-password (email+phone+PIN verification)")
     print(f"   Referral: /api/referral/info (public endpoint for reg page)")
     print(f"   Admin Referral: /api/admin/referral/settings (view) & /api/admin/referral/set-commission (update)")
-    print(f"   FIXED v5.35: Referral earned shows net after referral withdrawals (COMPLETED only)")
+    print(f"   FIXED v5.33: Admin-configurable referral commission, no min withdrawal limit")
     print("="*60 + "\n")
     app.run(debug=False, port=8080, host="0.0.0.0")
