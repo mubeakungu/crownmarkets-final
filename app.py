@@ -90,7 +90,7 @@ if MPESA_ENV == "production":
 else:
     MPESA_BASE_URL = "https://sandbox.safaricom.co.ke"
 
-REFERRAL_COMMISSION_PCT = float(os.environ.get("REFERRAL_COMMISSION_PCT", "15.0"))  # Admin can set via env
+REFERRAL_COMMISSION_PCT = float(os.environ.get("REFERRAL_COMMISSION_PCT", "10.0"))  # Admin can set via env
 REFERRAL_MIN_DEPOSIT    = float(os.environ.get("REFERRAL_MIN_DEPOSIT", "250.0"))
 
 # ── DATABASE ──────────────────────────────────────────────────────────────────
@@ -499,7 +499,7 @@ def process_referral_commission(tx_id, user_id, amount_usd):
     try:
         if existing_ref:
             # Update existing referral: add commission, change status to CREDITED
-            # Calculate 15% commission on this deposit
+            # Calculate 10% commission on this deposit
             commission = round(amount_usd * REFERRAL_COMMISSION_PCT / 100, 2)
             cur.execute(
                 "UPDATE referrals SET commission_usd=commission_usd+%s, status='CREDITED', "
@@ -517,7 +517,7 @@ def process_referral_commission(tx_id, user_id, amount_usd):
                 log.info(f"✓ Referral confirmed (0% commission): {referrer['name']} ← {user['name']}")
         else:
             # Create new referral if doesn't exist (backward compatibility for old users)
-            # Calculate 15% commission on this deposit
+            # Calculate 10% commission on this deposit
             commission = round(amount_usd * REFERRAL_COMMISSION_PCT / 100, 2)
             cur.execute(
                 "INSERT INTO referrals(id,referrer_id,referred_id,commission_usd,"
@@ -2294,7 +2294,7 @@ def admin_reset_all_referral_commissions():
             "referrals_affected": rows_affected,
             "previous_total_commission": before['total'],
             "new_total_commission": 0.00,
-            "note": "Fresh start at 15% commission. All new deposits will generate commission at the new rate."
+            "note": "Fresh start at 10% commission. All new deposits will generate commission at the new rate."
         })
     
     except Exception as e:
