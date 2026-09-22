@@ -59,7 +59,7 @@ TRADE_SYMBOL        = os.environ.get("TRADE_SYMBOL", "BTCUSDT")
 CHECK_INTERVAL      = 60
 
 # ── DEPOSIT PACKAGES ──────────────────────────────────────────────────────────
-DEPOSIT_PACKAGES = [250, 500, 750, 1000, 1250, 1500, 1750, 2000]
+DEPOSIT_PACKAGES = [250, 300, 500, 750, 1000, 1250, 1500, 1750, 2000]
 
 # ── NETWORKS & WALLETS ────────────────────────────────────────────────────────
 NETWORKS = {
