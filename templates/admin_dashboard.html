@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html>
 <head>
@@ -774,7 +773,7 @@ async function logout() {
   window.location.href = '/admin';
 }
 
-// COPY ADDRESS
+// COPY ADDRESS (from modal)
 function copyAddress() {
   const addr = document.getElementById('wdrModalAddress').textContent;
   if (!addr || addr === '—') { 
@@ -792,6 +791,26 @@ function copyAddress() {
       btn.style.background = 'rgba(212, 175, 55, 0.2)';
       btn.style.color = 'var(--primary-gold)';
     }, 2000);
+  }).catch(err => showError('Failed to copy: ' + err.message));
+}
+
+// COPY WITHDRAWAL ADDRESS (from table)
+function copyWdrAddress(addr) {
+  if (!addr || addr === '—') { 
+    showError('No address to copy'); 
+    return; 
+  }
+  navigator.clipboard.writeText(addr).then(() => {
+    const btn = event.target;
+    const origText = btn.textContent;
+    btn.textContent = '✓';
+    btn.style.background = 'rgba(74,222,128,0.2)';
+    btn.style.color = '#86efac';
+    setTimeout(() => {
+      btn.textContent = origText;
+      btn.style.background = 'rgba(212, 175, 55, 0.2)';
+      btn.style.color = 'var(--primary-gold)';
+    }, 1500);
   }).catch(err => showError('Failed to copy: ' + err.message));
 }
 
@@ -888,7 +907,7 @@ function renderPending(txData) {
   setHTML('pendingList', html);
 }
 
-// PENDING WITHDRAWALS
+// PENDING WITHDRAWALS (with copy button)
 function renderPendingWithdrawals(txData) {
   const pending = txData.filter(t => (t.type === 'WITHDRAWAL' || t.type === 'REFERRAL_WITHDRAWAL') && t.status === 'PENDING');
   if (!pending.length) {
@@ -900,7 +919,9 @@ function renderPendingWithdrawals(txData) {
     storeTx(t);
     const isRef = t.type === 'REFERRAL_WITHDRAWAL';
     const typeLabel = isRef ? '🎁 Referral' : '💰 Account';
-    html += `<tr><td style="color:#9ca3af;font-size:11px;">${(t.created_at || '').substring(0, 16).replace('T', ' ')}</td><td><strong>${escHtml(t.user_name || '—')}</strong></td><td>${typeLabel}</td><td style="font-weight:bold;">$${fmt(t.amount_usd)}</td><td><span class="badge badge-info">${escHtml(t.method || '—')}</span></td><td style="font-family:monospace;font-size:10px;color:#6b7280;">${(t.deposit_address || '—').substring(0, 20)}...</td><td><div style="display:flex;gap:6px;"><button class="btn-sm btn-green" onclick="openApproveWdrModal('${t.id}')">✓ Approve</button><button class="btn-sm btn-danger" onclick="openRejectWdrModal('${t.id}')">✗ Reject</button></div></td></tr>`;
+    const fullAddress = t.deposit_address || '—';
+    const displayAddress = fullAddress.substring(0, 20) + (fullAddress.length > 20 ? '...' : '');
+    html += `<tr><td style="color:#9ca3af;font-size:11px;">${(t.created_at || '').substring(0, 16).replace('T', ' ')}</td><td><strong>${escHtml(t.user_name || '—')}</strong></td><td>${typeLabel}</td><td style="font-weight:bold;">$${fmt(t.amount_usd)}</td><td><span class="badge badge-info">${escHtml(t.method || '—')}</span></td><td style="display:flex;align-items:center;gap:6px;"><span style="font-family:monospace;font-size:10px;color:#6b7280;">${displayAddress}</span>${fullAddress !== '—' ? `<button class="btn-sm" style="background:rgba(212, 175, 55, 0.2);color:var(--primary-gold);padding:4px 8px;font-size:10px;white-space:nowrap;" onclick="copyWdrAddress('${fullAddress}')">📋</button>` : ''}</td><td><div style="display:flex;gap:6px;"><button class="btn-sm btn-green" onclick="openApproveWdrModal('${t.id}')">✓ Approve</button><button class="btn-sm btn-danger" onclick="openRejectWdrModal('${t.id}')">✗ Reject</button></div></td></tr>`;
   });
   html += '</tbody></table>';
   setHTML('pendingWdrList', html);
