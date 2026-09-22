@@ -611,7 +611,7 @@
       <div><span style="color:var(--text-muted);">Client:</span> <strong id="wdrModalClientName"></strong></div>
       <div><span style="color:var(--text-muted);">Amount:</span> <span id="wdrModalAmount" style="font-size:17px;font-weight:bold;"></span></div>
       <div><span style="color:var(--text-muted);">Network:</span> <span id="wdrModalNetwork" style="color:var(--primary-gold);font-weight:bold;"></span></div>
-      <div style="display:flex;align-items:flex-start;gap:8px;"><span style="color:var(--text-muted);">Send To:</span> <span style="flex:1;"><span id="wdrModalAddress" style="font-family:monospace;font-size:11px;color:var(--primary-gold);word-break:break-all;"></span> <button class="btn-sm" style="background:rgba(212, 175, 55, 0.2);color:var(--primary-gold);margin-left:8px;vertical-align:top;display:inline-block;" onclick="copyAddress()">📋 Copy</button></span></div>
+      <div style="display:flex;align-items:flex-start;gap:8px;"><span style="color:var(--text-muted);">Send To:</span> <span style="flex:1;"><span id="wdrModalAddress" style="font-family:monospace;font-size:11px;color:var(--primary-gold);word-break:break-all;"></span> <button class="btn-sm" style="background:rgba(212, 175, 55, 0.2);color:var(--primary-gold);margin-left:8px;vertical-align:top;display:inline-block;" onclick="copyAddress(this)">📋 Copy</button></span></div>
     </div>
     <input type="hidden" id="wdrModalTxId">
     <div class="modal-btns">
@@ -773,15 +773,17 @@ async function logout() {
   window.location.href = '/admin';
 }
 
-// COPY ADDRESS (from modal)
-function copyAddress() {
+// COPY ADDRESS (from modal) — receives the clicked button directly
+// (fixes "Cannot read properties of undefined (reading 'target')" that
+// happened when the code relied on the global `event` object inside
+// the async .then() callback, where window.event is no longer set)
+function copyAddress(btn) {
   const addr = document.getElementById('wdrModalAddress').textContent;
   if (!addr || addr === '—') { 
     showError('No address to copy'); 
     return; 
   }
   navigator.clipboard.writeText(addr).then(() => {
-    const btn = event.target;
     const origText = btn.textContent;
     btn.textContent = '✓ Copied!';
     btn.style.background = 'rgba(74,222,128,0.2)';
@@ -794,14 +796,13 @@ function copyAddress() {
   }).catch(err => showError('Failed to copy: ' + err.message));
 }
 
-// COPY WITHDRAWAL ADDRESS (from table)
-function copyWdrAddress(addr) {
+// COPY WITHDRAWAL ADDRESS (from table) — receives the clicked button directly
+function copyWdrAddress(addr, btn) {
   if (!addr || addr === '—') { 
     showError('No address to copy'); 
     return; 
   }
   navigator.clipboard.writeText(addr).then(() => {
-    const btn = event.target;
     const origText = btn.textContent;
     btn.textContent = '✓';
     btn.style.background = 'rgba(74,222,128,0.2)';
@@ -921,7 +922,7 @@ function renderPendingWithdrawals(txData) {
     const typeLabel = isRef ? '🎁 Referral' : '💰 Account';
     const fullAddress = t.deposit_address || '—';
     const displayAddress = fullAddress.substring(0, 20) + (fullAddress.length > 20 ? '...' : '');
-    html += `<tr><td style="color:#9ca3af;font-size:11px;">${(t.created_at || '').substring(0, 16).replace('T', ' ')}</td><td><strong>${escHtml(t.user_name || '—')}</strong></td><td>${typeLabel}</td><td style="font-weight:bold;">$${fmt(t.amount_usd)}</td><td><span class="badge badge-info">${escHtml(t.method || '—')}</span></td><td style="display:flex;align-items:center;gap:6px;"><span style="font-family:monospace;font-size:10px;color:#6b7280;">${displayAddress}</span>${fullAddress !== '—' ? `<button class="btn-sm" style="background:rgba(212, 175, 55, 0.2);color:var(--primary-gold);padding:4px 8px;font-size:10px;white-space:nowrap;" onclick="copyWdrAddress('${fullAddress}')">📋</button>` : ''}</td><td><div style="display:flex;gap:6px;"><button class="btn-sm btn-green" onclick="openApproveWdrModal('${t.id}')">✓ Approve</button><button class="btn-sm btn-danger" onclick="openRejectWdrModal('${t.id}')">✗ Reject</button></div></td></tr>`;
+    html += `<tr><td style="color:#9ca3af;font-size:11px;">${(t.created_at || '').substring(0, 16).replace('T', ' ')}</td><td><strong>${escHtml(t.user_name || '—')}</strong></td><td>${typeLabel}</td><td style="font-weight:bold;">$${fmt(t.amount_usd)}</td><td><span class="badge badge-info">${escHtml(t.method || '—')}</span></td><td style="display:flex;align-items:center;gap:6px;"><span style="font-family:monospace;font-size:10px;color:#6b7280;">${displayAddress}</span>${fullAddress !== '—' ? `<button class="btn-sm" style="background:rgba(212, 175, 55, 0.2);color:var(--primary-gold);padding:4px 8px;font-size:10px;white-space:nowrap;" onclick="copyWdrAddress('${fullAddress}', this)">📋</button>` : ''}</td><td><div style="display:flex;gap:6px;"><button class="btn-sm btn-green" onclick="openApproveWdrModal('${t.id}')">✓ Approve</button><button class="btn-sm btn-danger" onclick="openRejectWdrModal('${t.id}')">✗ Reject</button></div></td></tr>`;
   });
   html += '</tbody></table>';
   setHTML('pendingWdrList', html);
@@ -999,7 +1000,7 @@ async function loadTrades() {
 }
 
 // RUN TRADES NOW
-async function runTradesNow() {
+async function runTradesNow(event) {
   const btn = event.target;
   btn.disabled = true;
   btn.textContent = '⏳ Running...';
