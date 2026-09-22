@@ -61,6 +61,12 @@ CHECK_INTERVAL      = 60
 # ── DEPOSIT PACKAGES ──────────────────────────────────────────────────────────
 DEPOSIT_PACKAGES = [250, 300, 500, 750, 1000, 1250, 1500, 1750, 2000]
 
+# ── SPECIAL PACKAGE MAPPINGS ──────────────────────────────────────────────────
+# $300 deposit = fixed $4.50/day profit (not proportional)
+SPECIAL_PACKAGES = {
+    300.0: 4.50,
+}
+
 # ── NETWORKS & WALLETS ────────────────────────────────────────────────────────
 NETWORKS = {
     "TRC20": {"network": "TRX"},
@@ -265,6 +271,17 @@ def _uid():    return str(uuid.uuid4())
 def _now():    return datetime.datetime.utcnow().isoformat()
 def _today():  return datetime.datetime.utcnow().strftime("%Y-%m-%d")
 
+def calculate_daily_profit(total_deposit):
+    """
+    Calculate daily profit based on total deposit.
+    Special case: $300 deposit = $4.50/day
+    Otherwise: $3 per $250 deposited (proportional)
+    """
+    if total_deposit in SPECIAL_PACKAGES:
+        return SPECIAL_PACKAGES[total_deposit]
+    else:
+        return round((total_deposit / 250.0) * DAILY_PROFIT_PER_250, 2)
+
 def create_notification(cur, user_id, title, message, ntype="INFO"):
     """Insert a notification row. Caller is responsible for conn.commit()."""
     cur.execute(
@@ -321,7 +338,7 @@ def run_daily_trades():
 
     try:
         today = _today()
-        log.info(f"=== Daily trade run: {today} — ${DAILY_PROFIT_PER_250} per $250 deposited ===")
+        log.info(f"=== Daily trade run: {today} ===")
 
         price       = get_live_price(TRADE_SYMBOL)
         pct_gain    = random.uniform(0.003, 0.005)
@@ -332,7 +349,7 @@ def run_daily_trades():
             log.error("Price diff is zero — aborting.")
             return
 
-        log.info(f"  Entry: ${price:,.2f} | Close: ${close_price:,.2f} | Rate: ${DAILY_PROFIT_PER_250} per $250 deposited")
+        log.info(f"  Entry: ${price:,.2f} | Close: ${close_price:,.2f} | Profit: $3 per $250 (or special packages)")
 
         conn = get_db()
         cur  = conn.cursor()
@@ -350,7 +367,7 @@ def run_daily_trades():
         paid = 0
 
         for c in clients:
-            client_profit   = round((c["total_deposit"] / 250.0) * DAILY_PROFIT_PER_250, 2)
+            client_profit   = calculate_daily_profit(c["total_deposit"])
             client_quantity = round(client_profit / price_diff, 6)
 
             now              = datetime.datetime.utcnow()
@@ -873,7 +890,7 @@ def client_summary():
 
     balance      = a["balance"] if a else 0
     net_deposit  = dep["s"]
-    expected_daily = round((net_deposit / 250.0) * DAILY_PROFIT_PER_250, 2) if net_deposit >= MIN_BALANCE else 0
+    expected_daily = calculate_daily_profit(net_deposit) if net_deposit >= MIN_BALANCE else 0
 
     return ok({
         "name":                u["name"],
@@ -892,7 +909,7 @@ def client_summary():
         "total_profit":        total_profit["s"],
         "days_traded":         days_traded["c"],
         "daily_profit":        expected_daily,
-        "daily_profit_rate":   f"${DAILY_PROFIT_PER_250} per $250 deposited",
+        "daily_profit_rate":   "$3 per $250 deposited (special: $300 = $4.50/day)",
         "deposit_packages":    DEPOSIT_PACKAGES,
     })
 
@@ -1405,7 +1422,7 @@ def admin_stats():
         "ref_commissions":     ref_paid,
         "total_profit_paid":   profit_paid,
         "trades_today":        trades_today,
-        "daily_profit_rate":   f"${DAILY_PROFIT_PER_250} per $250 deposited",
+        "daily_profit_rate":   "$3 per $250 deposited (special: $300 = $4.50/day)",
         "trade_symbol":        TRADE_SYMBOL,
         "scheduler_running":   _scheduler_started,
         "min_withdrawal":      MIN_WITHDRAWAL,
@@ -2014,7 +2031,7 @@ def admin_create_referral_member():
 def admin_run_trades():
     try:
         run_daily_trades()
-        return ok({"message": f"Daily trades completed — ${DAILY_PROFIT_PER_250} per $250 deposited"})
+        return ok({"message": f"Daily trades completed — $3 per $250 deposited (special: $300 = $4.50/day)"})
     except Exception as e:
         log.error(f"Trade run failed: {e}")
         return err(f"Trade execution error: {str(e)}")
@@ -2064,7 +2081,7 @@ def admin_run_single_client_trade():
         cur.close(); conn.close()
         return err("Price diff was zero — try again")
 
-    client_profit   = DAILY_PROFIT_USD
+    client_profit   = calculate_daily_profit(c["total_deposit"])
     client_quantity = round(client_profit / price_diff, 6)
 
     now              = datetime.datetime.utcnow()
@@ -2212,8 +2229,8 @@ def scheduler_status():
         "trade_hour_eat":    TRADE_HOUR + 3,
         "next_run_utc":      next_run.isoformat(),
         "hours_until_run":   hours_left,
-        "daily_profit_rate": f"${DAILY_PROFIT_PER_250} per $250 deposited",
-        "profit_basis":      f"${DAILY_PROFIT_PER_250} per $250 deposited per day (min deposit: ${MIN_BALANCE})",
+        "daily_profit_rate": "$3 per $250 deposited (special: $300 = $4.50/day)",
+        "profit_basis":      "$3 per $250 deposited per day (min deposit: $250) | Special: $300 = $4.50/day",
         "min_balance":       MIN_BALANCE,
         "min_withdrawal":    MIN_WITHDRAWAL,
         "symbol":            TRADE_SYMBOL,
@@ -2311,13 +2328,14 @@ start_scheduler()
 
 if __name__ == "__main__":
     print("\n" + "="*60)
-    print("   Crown Markets v5.34 — $3 PER $250 DEPOSITED (PROPORTIONAL)")
+    print("   Crown Markets v5.35 — SPECIAL PACKAGE: $300 = $4.50/DAY")
     print("="*60)
     print(f"   URL    : http://127.0.0.1:8080")
     print(f"   Client : john@test.com  / demo1234")
     print(f"   Admin  : admin@test.com / admin1234")
-    print(f"   Rate   : ${DAILY_PROFIT_PER_250} per $250 deposited daily at {TRADE_HOUR:02d}:00 UTC ({TRADE_HOUR+3:02d}:00 EAT)")
-    print(f"   Examples: $250 → ${DAILY_PROFIT_PER_250}/day | $500 → ${DAILY_PROFIT_PER_250*2}/day | $750 → ${DAILY_PROFIT_PER_250*3}/day")
+    print(f"   Rate   : $3 per $250 deposited daily at {TRADE_HOUR:02d}:00 UTC ({TRADE_HOUR+3:02d}:00 EAT)")
+    print(f"   Special: $300 = $4.50/day")
+    print(f"   Examples: $250 → $3/day | $300 → $4.50/day | $500 → $6/day | $750 → $9/day")
     print(f"   Eligible min total deposit: ${MIN_BALANCE:.0f}")
     print(f"   Min withdrawal per transaction: ${MIN_WITHDRAWAL:.0f}")
     print(f"   Symbol : {TRADE_SYMBOL}")
@@ -2330,6 +2348,6 @@ if __name__ == "__main__":
     print(f"   Forgot Password: /forgot-password (email+phone+PIN verification)")
     print(f"   Referral: /api/referral/info (public endpoint for reg page)")
     print(f"   Admin Referral: /api/admin/referral/settings (view) & /api/admin/referral/set-commission (update)")
-    print(f"   FIXED v5.34: Proportional profit model ($3 per $250), 10% referral commission")
+    print(f"   FIXED v5.35: Special $300 package ($4.50/day), Proportional profit for others")
     print("="*60 + "\n")
     app.run(debug=False, port=8080, host="0.0.0.0")
