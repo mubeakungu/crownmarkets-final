@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html>
 <head>
@@ -611,7 +612,7 @@
       <div><span style="color:var(--text-muted);">Client:</span> <strong id="wdrModalClientName"></strong></div>
       <div><span style="color:var(--text-muted);">Amount:</span> <span id="wdrModalAmount" style="font-size:17px;font-weight:bold;"></span></div>
       <div><span style="color:var(--text-muted);">Network:</span> <span id="wdrModalNetwork" style="color:var(--primary-gold);font-weight:bold;"></span></div>
-      <div><span style="color:var(--text-muted);">Send To:</span> <span id="wdrModalAddress" style="font-family:monospace;font-size:11px;color:var(--primary-gold);"></span></div>
+      <div style="display:flex;align-items:flex-start;gap:8px;"><span style="color:var(--text-muted);">Send To:</span> <span style="flex:1;"><span id="wdrModalAddress" style="font-family:monospace;font-size:11px;color:var(--primary-gold);word-break:break-all;"></span> <button class="btn-sm" style="background:rgba(212, 175, 55, 0.2);color:var(--primary-gold);margin-left:8px;vertical-align:top;display:inline-block;" onclick="copyAddress()">📋 Copy</button></span></div>
     </div>
     <input type="hidden" id="wdrModalTxId">
     <div class="modal-btns">
@@ -771,6 +772,27 @@ function showError(msg, id='globalError') {
 async function logout() {
   await post('/api/auth/logout', {});
   window.location.href = '/admin';
+}
+
+// COPY ADDRESS
+function copyAddress() {
+  const addr = document.getElementById('wdrModalAddress').textContent;
+  if (!addr || addr === '—') { 
+    showError('No address to copy'); 
+    return; 
+  }
+  navigator.clipboard.writeText(addr).then(() => {
+    const btn = event.target;
+    const origText = btn.textContent;
+    btn.textContent = '✓ Copied!';
+    btn.style.background = 'rgba(74,222,128,0.2)';
+    btn.style.color = '#86efac';
+    setTimeout(() => {
+      btn.textContent = origText;
+      btn.style.background = 'rgba(212, 175, 55, 0.2)';
+      btn.style.color = 'var(--primary-gold)';
+    }, 2000);
+  }).catch(err => showError('Failed to copy: ' + err.message));
 }
 
 // STATS & CHARTS
